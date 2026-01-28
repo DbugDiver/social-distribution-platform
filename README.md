@@ -1,6 +1,6 @@
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/bRZK9dqv)
 
-# CMPUT 404 Project – Social Distribution
+# CMPUT 404 Project By Team Honeydew
 
 This repository contains the group project for CMPUT 404 - Team Honeydew at the University of Alberta.
 
@@ -11,6 +11,7 @@ The goal of this project is to build a **fully functional website that matches a
 ---
 
 ## Team Name
+"Honeydew"
 uofa-cmput404-team-honeydew
 
 ## Team Members
