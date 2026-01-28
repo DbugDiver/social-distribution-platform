@@ -12,6 +12,7 @@ The goal of this project is to build a **fully functional website that matches a
 
 ## Team Name
 "Honeydew"
+---
 uofa-cmput404-team-honeydew
 
 ## Team Members
