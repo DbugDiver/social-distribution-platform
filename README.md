@@ -11,13 +11,13 @@ The goal of this project is to build a **fully functional website that matches a
 ---
 
 ## Team Name
-"Honeydew"
----
-uofa-cmput404-team-honeydew
+
+### "Honeydew"
+__uofa-cmput404-team-honeydew__
 
 ## Team Members
 - Rosy Budhathoki (rosybudhathoki)
-- Member 2
+- Gui Carius (gCarius)
 - Member 3
 - Member 4
 - Member 5
