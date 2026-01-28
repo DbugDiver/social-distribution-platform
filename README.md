@@ -18,7 +18,7 @@ __uofa-cmput404-team-honeydew__
 ## Team Members
 - Rosy Budhathoki (rosybudhathoki)
 - Gui Carius (gCarius)
-- manas Joshi (mjoshi3)
+  Manas Joshi (mjoshi3)
 - Member 4
 - Member 5
 - Member 6
