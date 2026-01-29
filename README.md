@@ -19,7 +19,7 @@ __uofa-cmput404-team-honeydew__
 - Rosy Budhathoki (rosybudhathoki)
 - Gui Carius (gCarius)
 - Manas Joshi (mjoshi3)
-- Member 4
+- Dbug Diver
 - Member 5
 - Member 6
 
