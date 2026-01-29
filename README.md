@@ -20,8 +20,7 @@ __uofa-cmput404-team-honeydew__
 - Gui Carius (gCarius)
 - Manas Joshi (mjoshi3)
 - Dbug Diver
-- Member 5
-- Member 6
+- Nathan Rodrigues (narodri1)
 
 > Names may be aliases.
 
