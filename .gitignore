@@ -1,0 +1,43 @@
+# ==========================================
+# PROFESSOR'S STRICT REQUIREMENTS (DO NOT REMOVE)
+# ==========================================
+# No virtual environments or downloaded packages
+venv/
+env/
+.venv/
+
+# No built Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# No node_modules or JS bundler output (Just in case someone tries)
+node_modules/
+dist/
+build/
+
+# ==========================================
+# LOCAL DEVELOPMENT SECRETS & DATABASES
+# ==========================================
+# Never commit the local SQLite database to GitHub
+db.sqlite3
+db.sqlite3-journal
+
+# Never commit environment variables or passwords
+.env
+.env.local
+
+# ==========================================
+# DJANGO SPECIFIC & STATIC FILES
+# ==========================================
+# Ignore the static files folder generated for Heroku deployment
+staticfiles/
+
+# ==========================================
+# IDE & OS JUNK
+# ==========================================
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
