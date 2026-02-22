@@ -2,18 +2,28 @@
 <!doctype html>
 <html>
 <head>
-  <title>Delete</title>
-  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+  <title>Delete Post</title>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}"> <!-- Load the CSS file for styling -->
 </head>
 <body>
-  <h1>Delete post?</h1>
-  <p>{{ post.title|default:"(no title)" }}</p>
 
-  <form method="post">
-    {% csrf_token %}
-    <button type="submit">Yes, delete</button>
-  </form>
-
-  <p><a href="{% url 'posts:detail' post.id %}">Cancel</a></p>
+<div class="delete-page">
+  <div class="delete-card">
+    <h2 class="delete-title">Delete Post?</h2>
+    <p class="delete-sub">
+      You are about to delete:
+    </p>
+    <div class="delete-post-title">
+      {{ post.title|default:"(no title)" }} <!-- Show the title of the post being deleted, or "(no title)" if it doesn't have one -->
+    </div>
+    <form method="post" class="delete-actions">
+      {% csrf_token %}
+      <button type="submit" class="btn-danger"> <!-- Submit button to confirm deletion of the post -->
+        Yes, delete
+      </button>
+      <a href="{% url 'posts:stream' %}">Cancel</a> <!-- Link to go back to the stream page if the user decides not to delete the post -->
+    </form>
+  </div>
+</div>
 </body>
 </html>

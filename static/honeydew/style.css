@@ -1,3 +1,24 @@
+/* ===== 
+Rosy: This is my current css, I need it to look more modern and clean, with a light color scheme. 
+I want to use a lot of white space, rounded corners, and subtle shadows to create a fresh and airy feel. 
+The typography should be bold and easy to read, with a focus on clarity and simplicity.
+Post cards should have a clean layout with the author's avatar, name, timestamp, and content clearly separated.
+The theme should be uniform across the site, with a consistent color palette and design elements.
+Plus: I copied and pasted my existing css
+ChatGPT: lines 11 - 549 are loosely based on the answer provided. Most of the CSS is custom, but I took inspiration 
+from fixes applied by chatGPT
+Citation: ChatGPT, OpenAI, 2026-02-22, https://chatgpt.com/share/699ab455-a6d4-800a-a399-aabe2581621f
+===== */
+
+/* ===== Page background ===== */
+body{
+  margin:0;
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  background: linear-gradient(135deg,var(--bg1),var(--bg2));
+  min-height:100vh;
+  color: var(--text);
+}
+
 :root{
   --bg1:#00c6ff;
   --bg2:#00e5a8;
@@ -9,17 +30,8 @@
   --radius: 24px;
 }
 
-/* ===== Page background ===== */
-body{
-  margin:0;
-  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  background: linear-gradient(135deg,var(--bg1),var(--bg2));
-  min-height:100vh;
-  color: var(--text);
-}
-
 /* ===== Sticky Header ===== */
-.topbar{
+.header{
   position: sticky;
   top: 0;
   z-index: 50;
@@ -28,7 +40,7 @@ body{
   border-bottom: 1px solid rgba(255,255,255,0.35);
 }
 
-.topbar-inner{
+.header-inner{
   max-width: 1100px;
   margin: 0 auto;
   padding: 14px 16px;
@@ -44,27 +56,10 @@ body{
   font-size: 18px;
 }
 
-.topbar-nav{
+.header-nav{
   display:flex;
   gap: 10px;
   align-items:center;
-}
-
-.nav-link{
-  color: white;
-  text-decoration:none;
-  font-weight: 700;
-  padding: 8px 12px;
-  border-radius: 999px;
-  transition: 0.15s ease;
-}
-
-.nav-link:hover{
-  background: rgba(255,255,255,0.20);
-}
-
-.nav-link.active{
-  background: rgba(255,255,255,0.30);
 }
 
 /* ===== Main layout ===== */
@@ -82,6 +77,14 @@ body{
   gap: 18px;
 }
 
+/* ===== Feed ===== */
+.feed-title{
+  color: white;
+  font-size: 28px;
+  font-weight: 900;
+  margin: 8px 0 18px;
+}
+
 /* Mobile: stack sidebar under feed */
 @media (max-width: 900px){
   .layout{
@@ -95,14 +98,7 @@ body{
   }
 }
 
-/* ===== Feed ===== */
-.feed-title{
-  color: white;
-  font-size: 28px;
-  font-weight: 900;
-  margin: 8px 0 18px;
-}
-
+/* ===== Post Card ===== */
 .post-card{
   background: var(--card);
   border-radius: var(--radius);
@@ -130,6 +126,23 @@ body{
   border-radius: 50%;
   background: linear-gradient(135deg,var(--bg1),var(--bg2));
   box-shadow: 0 6px 14px rgba(0,0,0,0.10);
+}
+
+.nav-link{
+  color: white;
+  text-decoration:none;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 999px;
+  transition: 0.15s ease;
+}
+
+.nav-link:hover{
+  background: rgba(255,255,255,0.20);
+}
+
+.nav-link.active{
+  background: rgba(255,255,255,0.30);
 }
 
 .author{
@@ -229,26 +242,6 @@ body{
   font-weight: 700;
 }
 
-/* ===== Footer ===== */
-.footer{
-  margin-top: 30px;
-  padding: 14px 16px;
-  border-top: 1px solid rgba(255,255,255,0.35);
-  background: rgba(255,255,255,0.18);
-  backdrop-filter: blur(12px);
-}
-
-.footer-inner{
-  max-width: 1100px;
-  margin: 0 auto;
-  display:flex;
-  align-items:center;
-  gap: 10px;
-  color: white;
-  font-weight: 700;
-  font-size: 13px;
-}
-
 .dot{ opacity: 0.8; }
 
 .post-text-wrapper {
@@ -344,4 +337,216 @@ body{
   display:flex;
   gap:10px;
   margin-top: 12px;
+}
+
+/* ===== Delete Page ===== */
+.delete-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #00c6ff, #00e5a8);
+  padding: 20px;
+}
+
+.delete-card {
+  background: rgba(255,255,255,0.95);
+  padding: 40px 32px;
+  border-radius: 28px;
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+  backdrop-filter: blur(10px);
+}
+
+.delete-title {
+  font-size: 24px;
+  font-weight: 900;
+  margin-bottom: 12px;
+  color: #0f172a;
+}
+
+.delete-sub {
+  font-size: 14px;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.delete-post-title {
+  font-weight: 800;
+  font-size: 18px;
+  margin-bottom: 25px;
+  color: #111827;
+}
+
+.delete-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 12px;
+  border-radius: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+  transform: translateY(-2px);
+}
+
+.btn-cancel {
+  display: inline-block;
+  text-decoration: none;
+  padding: 10px;
+  border-radius: 14px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 700;
+  transition: 0.2s ease;
+}
+
+.btn-cancel:hover {
+  background: #f0e2e3;
+}
+
+/* ===== Post Detail Page Additions ===== */
+.post-detail{
+  padding: 22px;
+}
+
+.detail-title{
+  margin: 10px 0 12px;
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--text);
+}
+
+.detail-body{
+  margin-top: 12px;
+  line-height: 1.7;
+  color: #111827;
+  font-size: 15px;
+}
+
+/* Plain text uses linebreaksbr already */
+.detail-body.plain{
+  white-space: normal;
+}
+
+/* Markdown tweaks */
+.detail-body.markdown h1,
+.detail-body.markdown h2,
+.detail-body.markdown h3{
+  margin: 14px 0 8px;
+  font-weight: 900;
+}
+
+.detail-body.markdown p{
+  margin: 10px 0;
+}
+
+.detail-body.markdown code{
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.detail-body.markdown pre{
+  background: #0f172a;
+  color: white;
+  padding: 14px;
+  border-radius: 16px;
+  overflow-x: auto;
+}
+
+.detail-actions{
+  display:flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.pill-danger{
+  color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.25);
+}
+
+.pill-danger:hover{
+  background: #fff1f2;
+}
+
+/* ===== Stream post header row (actions on right) ===== */
+.post-header-row{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 12px;
+}
+
+.post-actions{
+  display:flex;
+  gap: 8px;
+  align-items:center;
+}
+
+.inline-form{
+  margin:0;
+}
+
+.icon-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: #f1f5f9;
+  border: 1px solid rgba(0,0,0,0.06);
+  cursor: pointer;
+  text-decoration:none;
+  font-size: 16px;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.06);
+  transition: 0.15s ease;
+}
+
+.icon-btn:hover{
+  transform: translateY(-2px);
+  background: #e2e8f0;
+}
+
+.icon-btn.danger{
+  background: #fff1f2;
+  border-color: rgba(239,68,68,0.18);
+}
+
+.icon-btn.danger:hover{
+  background: #ffe4e6;
+}
+
+/* ===== Footer ===== */
+.footer{
+  margin-top: 30px;
+  padding: 14px 16px;
+  border-top: 1px solid rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.18);
+  backdrop-filter: blur(12px);
+}
+
+.footer-inner{
+  max-width: 1100px;
+  margin: 0 auto;
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  color: white;
+  font-weight: 700;
+  font-size: 13px;
 }

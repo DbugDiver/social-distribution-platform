@@ -3,19 +3,19 @@
 <html>
 <head>
   <title>Stream</title>
-  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}"> <!-- Load the CSS file for styling -->
 </head>
 <body>
 
-<header class="topbar">
-  <div class="topbar-inner">
+<header class="header">
+  <div class="header-inner">
     <div class="brand">SocialDistribution</div>
-
-    <nav class="topbar-nav">
+    <nav class="header-nav">
       <a href="{% url 'posts:stream' %}" class="nav-link active">Public</a>
-      <a href="#" class="nav-link">Friends</a>
+      <a href="#" class="nav-link">Friends</a> <!-- Friends Tab on header is not implemented yet -->
       {% if user.is_authenticated %}
-        <a class="nav-link" href="{% url 'posts:create' %}">+ New Post</a>
+        <!-- Only show option to create a post to logged-in/authenticated users -->
+        <a href="{% url 'posts:create' %}" class="nav-link">+ New Post</a>
       {% endif %}
     </nav>
   </div>
@@ -23,42 +23,58 @@
 
 <main class="page">
   <div class="layout">
-
-    <!-- Main feed -->
+    <!-- Main feed when we see public stream for now (Will change to friends only view when implemented)-->
     <section class="feed">
       <h1 class="feed-title">Public Stream</h1>
-
       {% for post in posts %}
         <article class="post-card">
-
-          <div class="post-header">
-            <div class="avatar"></div>
-            <div>
-              <div class="author">{{ post.author.username }}</div>
-              <div class="timestamp">{{ post.created }}</div>
+          <div class="post-header-row">
+            <div class="post-header">
+              <div class="avatar"></div>
+              <div>
+                <div class="author">{{ post.author.username }}</div> <!--Post Cards should show the author's username -->
+                <div class="timestamp">{{ post.created }}</div> <!--Post Cards should show the timestamp of when the post was created -->
+              </div>
             </div>
+
+            <!-- Only show edit/delete buttons if the user is authenticated and is the author of the post -->
+            {% if user.is_authenticated and user.id == post.author_id %}
+              <div class="post-actions">
+                <a class="icon-btn" href="{% url 'posts:edit' post.id %}" title="Edit">✏️</a>
+                <a class="icon-btn danger"
+                  href="{% url 'posts:delete' post.id %}"
+                  title="Delete">
+                  🗑️
+                </a>
+              </div>
+            {% endif %}
           </div>
 
+          <!-- Only show the title if the post has one -->
           {% if post.title %}
             <h3 class="post-title">
-              <a href="{% url 'posts:detail' post.id %}">{{ post.title }}</a>
+              {{ post.title }}
             </h3>
           {% endif %}
 
+          <!-- Only show the image if the post has one -->
           {% if post.has_image %}
             <div class="post-image-wrapper">
               <img src="{{ post.image.url }}" class="post-image" alt="post image">
             </div>
           {% endif %}
 
+          <!-- Only show the content if the post has one -->
           {% if post.content %}
             <div class="post-text-wrapper">
-
+              <!-- If the content is markdown, render it as HTML -->  
               {% if post.content_type == "text/markdown" %}
                 <div class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
                     id="content-{{ post.id }}">
                   {{ post.rendered|safe }}
                 </div>
+
+              <!-- If the content is not markdown, just show it as plain text -->
               {% else %}
                 <p class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
                   id="content-{{ post.id }}">
@@ -66,6 +82,8 @@
                 </p>
               {% endif %}
 
+              <!-- Only show the read more button if the content has more than 20 words 
+              After js(below on this page) implementation clicking on ReadMore will show all conent -->
               {% if post.content|wordcount > 20 %}
                 <button class="read-more-btn" type="button"
                         onclick="toggleContent('{{ post.id }}', this)">
@@ -75,11 +93,14 @@
 
             </div>
           {% endif %}
-
         </article>
-      {% empty %}
-        <p class="empty">No posts yet.</p>
-      {% endfor %}
+        {% empty %}
+          {% if user.is_authenticated %}
+            <p class="empty">There are no posts to show.</p> <!-- If logged in and there are no posts, Display this message -->
+          {% else %}
+            <p class="empty">You must log in to access posts.</p> <!-- If not logged in, Display this message -->
+          {% endif %}
+        {% endfor %}
     </section>
 
     <!-- Sidebar -->
@@ -87,27 +108,27 @@
       <div class="side-card">
         <h2 class="side-title">Friends Only</h2>
         <p class="side-text">
-          (Coming next) Shows posts visible only to friends.
+          (Coming next) Shows posts visible only to friends. <!-- Placeholder text for the friends feed, which is not implemented yet -->
         </p>
 
         <div class="side-actions">
-          <a class="pill" href="#">View Friends Feed</a>
+          <a class="pill" href="#">View Friends Feed</a> <!-- Link to friends feed, which is not implemented yet -->
         </div>
       </div>
 
       <div class="side-card">
-        <h2 class="side-title">Quick Actions</h2>
+        <h2 class="side-title">Quick Actions</h2> <!-- Quick actions for creating a post or logging in -->
         {% if user.is_authenticated %}
-          <a class="pill" href="{% url 'posts:create' %}">+ Create Post</a>
+          <a class="pill" href="{% url 'posts:create' %}">+ Create Post</a> <!-- Link to create a new post, only visible to authenticated users -->
         {% else %}
-          <p class="side-text">Log in to post.</p>
+          <a class="pill" href="{% url 'login' %}">Login to Post</a> <!-- Link to login page, only visible to unauthenticated users -->
         {% endif %}
       </div>
     </aside>
-
   </div>
 </main>
 
+<!-- Footer -->
 <footer class="footer">
   <div class="footer-inner">
     <span>© {{ now|default:"2026" }} SocialDistribution</span>
@@ -117,16 +138,13 @@
 </footer>
 
 <script>
+  // JavaScript function to toggle the full content of a post when the "Read more" button is clicked
   function toggleContent(id, btn) {
     const content = document.getElementById("content-" + id);
-    if (!content) return;
-
-    const isExpanded = content.classList.toggle("expanded");
-
-    // also toggle truncated so CSS can't keep clipping it
-    content.classList.toggle("truncated", !isExpanded);
-
-    btn.innerText = isExpanded ? "Show less" : "Read more";
+    if (!content) return; 
+    const isExpanded = content.classList.toggle("expanded");  // Toggle the "expanded" class to show/hide the full content
+    content.classList.toggle("truncated", !isExpanded); // Toggle the "truncated" class to hide/show the truncated content 
+    btn.innerText = isExpanded ? "Show less" : "Read more"; // Change the button text based on whether the content is expanded or not
   }
 </script>
 </body>

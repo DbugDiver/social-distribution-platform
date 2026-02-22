@@ -1,11 +1,23 @@
 from django import forms
 from .models import Post
 
+"""
+  Rosy: I want a form class that take a model and fields and allows me to add custom validations
+  ChatGPT: PostForm class is based on the answer provided
+  Citation: ChatGPT, OpenAI, 2026-02-22, https://chatgpt.com/share/699ab4ee-3e20-800a-8488-8e698efb894f
+"""
+
 class PostForm(forms.ModelForm):
     class Meta:
         model = Post
         fields = ["title", "content_type", "content", "image", "visibility"]
 
+    """
+    The clean method is overridden to add custom validation logic based on the content type.
+    For plain text posts, it checks that there is no image and that there is some content.
+    For markdown posts, it checks that there is either content or an image (or both).
+    If the validation fails, it raises a ValidationError with an appropriate message.
+    """
     def clean(self):
         cleaned = super().clean()
         ct = cleaned.get("content_type")

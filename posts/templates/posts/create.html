@@ -3,17 +3,12 @@
 <html>
 <head>
   <title>{{ mode }} Post</title>
-  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
-</head>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}"> <!-- Load the CSS file for styling -->
 <body>
 
-<header class="topbar">
-  <div class="topbar-inner">
+<header class="header">
+  <div class="header-inner">
     <div class="brand">SocialDistribution</div>
-    <nav class="topbar-nav">
-      <a href="{% url 'posts:stream' %}" class="nav-link">Stream</a>
-      <a href="{% url 'posts:create' %}" class="nav-link active">New</a>
-    </nav>
   </div>
 </header>
 
@@ -21,31 +16,45 @@
   <div class="layout" style="grid-template-columns: 1fr;">
     <section class="feed">
       <h1 class="feed-title">{{ mode }} Post</h1>
-
       <article class="post-card">
+
+        <!-- The form for creating/editing a post. 
+        It includes fields for title, content type, content, optional image upload (only shown for markdown posts) and visibility. 
+        It also includes a markdown toolbar that is shown only when the content type is markdown. 
+        The form displays validation errors if there are any. -->
         <form method="post" enctype="multipart/form-data">
           {% csrf_token %}
-
-          <!-- Show non-field errors -->
           {% if form.non_field_errors %}
             <div class="form-errors">{{ form.non_field_errors }}</div>
           {% endif %}
-
-          <!-- Title -->
           <div class="form-row">
             <label class="form-label" for="{{ form.title.id_for_label }}">Title</label>
             {{ form.title }}
             {% for e in form.title.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
           </div>
 
-          <!-- Content Type -->
+          <!-- 
+            This section renders the Content Type dropdown field from the Django form.
+            The user selects whether the post is plain text or markdown.
+            content-type is Markdown by default, but users can choose plain text if they want. Check this on models.py
+            Errors are shown if present, they come from form validation inside PostForm in forms.py if specified
+          -->
           <div class="form-row">
             <label class="form-label" for="{{ form.content_type.id_for_label }}">Content type</label>
             {{ form.content_type }}
-            {% for e in form.content_type.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+            {% for e in form.content_type.errors %}
+            <div class="field-error">
+              {{ e }}
+            </div>{% endfor %}
           </div>
+          
+          <!-- 
+          Rosy: I want to add markdown for my html file giveme ideas on how to bold,italics, and add link
+          ChatGPT: md-toolbar is based on the answer provided
+          Citation: ChatGPT, OpenAI, 2026-02-22, https://chatgpt.com/share/699aaeda-78b8-800a-988b-3111a6743271
+          -->
 
-          <!-- Markdown toolbar (shows only when content_type = text/markdown) -->
+          <!-- Markdown toolbar (shows only when content_type = Markdown) -->
           <div id="md-toolbar" class="md-toolbar" style="display:none;">
             <button type="button" class="md-btn" onclick="wrapText('**')"><b>B</b></button>
             <button type="button" class="md-btn" onclick="wrapText('*')"><i>I</i></button>
@@ -57,7 +66,7 @@
           <!-- Content -->
           <div class="form-row">
             <label class="form-label" for="{{ form.content.id_for_label }}">Content</label>
-            {{ form.content }}
+            {{ form.content }} <!-- Textarea for the content of the post -->
             {% for e in form.content.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
           </div>
 
@@ -77,13 +86,14 @@
 
           <div class="form-actions">
             <button type="submit" class="pill">Save</button>
-            <a class="pill" href="{% url 'posts:stream' %}">Cancel</a>
+            <a class="pill" href="{% url 'posts:stream' %}">Cancel</a> <!-- Link to go back to the stream page -->
           </div>
         </form>
       </article>
     </section>
   </div>
 </main>
+
 
 <script>
   // Get the actual rendered IDs from Django form fields
@@ -92,19 +102,19 @@
   const toolbar = document.getElementById("md-toolbar");
   const imageRow = document.getElementById("image-row");
 
+
+  // Rosy: I have a contentType Plain or markdown html, give me js for only showing image option if markdown is selected. 
+  // Plus pasted code for content-type
+  // ChatGPT: updateUI function is based on the answer provided
+  // Citation: ChatGPT, OpenAI, 2026-02-22, https://chatgpt.com/share/699ab031-6184-800a-9c23-2f9184412743
+
   function updateUI() {
+    // Show/hide the markdown toolbar and image upload row based on the selected content type(only if markdown is selected)
     if (!contentTypeEl) return;
-
     const isMarkdown = (contentTypeEl.value === "text/markdown");
-
-    // toolbar only for markdown
     if (toolbar) toolbar.style.display = isMarkdown ? "flex" : "none";
-
-    // image upload only for markdown (your requirement)
     if (imageRow) {
       imageRow.style.display = isMarkdown ? "block" : "none";
-
-      // optional: clear chosen file when switching to plain
       if (!isMarkdown) {
         const fileInput = imageRow.querySelector('input[type="file"]');
         if (fileInput) fileInput.value = "";
@@ -116,7 +126,13 @@
   updateUI();
   if (contentTypeEl) contentTypeEl.addEventListener("change", updateUI);
 
+  // Rosy: For my markdown toolbar, I want to add buttons for bold, italics, code, and links. 
+  // When clicked, they should wrap the selected text in the appropriate markdown syntax. 
+  // ChatGPT: wrapText and insertLink functions are based on the answer provided
+  // Citation: ChatGPT, OpenAI, 2026-02-22, https://chatgpt.com/share/699ab0e1-6a94-800a-83a3-7b3b75ca662b
+
   function wrapText(wrapper) {
+    // Wrap the selected text in the content textarea with the given wrapper (e.g. ** for bold, * for italics)
     if (!contentEl) return;
     const start = contentEl.selectionStart ?? 0;
     const end = contentEl.selectionEnd ?? 0;
@@ -126,15 +142,9 @@
   }
 
   function insertLink() {
+    // Insert markdown syntax for a link at the current cursor position in the content textarea
     if (!contentEl) return;
     const text = "[text](https://example.com)";
-    contentEl.setRangeText(text, contentEl.selectionStart, contentEl.selectionEnd, "end");
-    contentEl.focus();
-  }
-
-  function insertImage() {
-    if (!contentEl) return;
-    const text = "![alt text](https://example.com/image.png)";
     contentEl.setRangeText(text, contentEl.selectionStart, contentEl.selectionEnd, "end");
     contentEl.focus();
   }
