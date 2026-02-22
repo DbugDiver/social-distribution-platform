@@ -1,0 +1,133 @@
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <title>Stream</title>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">SocialDistribution</div>
+
+    <nav class="topbar-nav">
+      <a href="{% url 'posts:stream' %}" class="nav-link active">Public</a>
+      <a href="#" class="nav-link">Friends</a>
+      {% if user.is_authenticated %}
+        <a class="nav-link" href="{% url 'posts:create' %}">+ New Post</a>
+      {% endif %}
+    </nav>
+  </div>
+</header>
+
+<main class="page">
+  <div class="layout">
+
+    <!-- Main feed -->
+    <section class="feed">
+      <h1 class="feed-title">Public Stream</h1>
+
+      {% for post in posts %}
+        <article class="post-card">
+
+          <div class="post-header">
+            <div class="avatar"></div>
+            <div>
+              <div class="author">{{ post.author.username }}</div>
+              <div class="timestamp">{{ post.created }}</div>
+            </div>
+          </div>
+
+          {% if post.title %}
+            <h3 class="post-title">
+              <a href="{% url 'posts:detail' post.id %}">{{ post.title }}</a>
+            </h3>
+          {% endif %}
+
+          {% if post.has_image %}
+            <div class="post-image-wrapper">
+              <img src="{{ post.image.url }}" class="post-image" alt="post image">
+            </div>
+          {% endif %}
+
+          {% if post.content %}
+            <div class="post-text-wrapper">
+
+              {% if post.content_type == "text/markdown" %}
+                <div class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
+                    id="content-{{ post.id }}">
+                  {{ post.rendered|safe }}
+                </div>
+              {% else %}
+                <p class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
+                  id="content-{{ post.id }}">
+                  {{ post.content }}
+                </p>
+              {% endif %}
+
+              {% if post.content|wordcount > 20 %}
+                <button class="read-more-btn" type="button"
+                        onclick="toggleContent('{{ post.id }}', this)">
+                  Read more
+                </button>
+              {% endif %}
+
+            </div>
+          {% endif %}
+
+        </article>
+      {% empty %}
+        <p class="empty">No posts yet.</p>
+      {% endfor %}
+    </section>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="side-card">
+        <h2 class="side-title">Friends Only</h2>
+        <p class="side-text">
+          (Coming next) Shows posts visible only to friends.
+        </p>
+
+        <div class="side-actions">
+          <a class="pill" href="#">View Friends Feed</a>
+        </div>
+      </div>
+
+      <div class="side-card">
+        <h2 class="side-title">Quick Actions</h2>
+        {% if user.is_authenticated %}
+          <a class="pill" href="{% url 'posts:create' %}">+ Create Post</a>
+        {% else %}
+          <p class="side-text">Log in to post.</p>
+        {% endif %}
+      </div>
+    </aside>
+
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <span>© {{ now|default:"2026" }} SocialDistribution</span>
+    <span class="dot">•</span>
+    <span>Built with Django</span>
+  </div>
+</footer>
+
+<script>
+  function toggleContent(id, btn) {
+    const content = document.getElementById("content-" + id);
+    if (!content) return;
+
+    const isExpanded = content.classList.toggle("expanded");
+
+    // also toggle truncated so CSS can't keep clipping it
+    content.classList.toggle("truncated", !isExpanded);
+
+    btn.innerText = isExpanded ? "Show less" : "Read more";
+  }
+</script>
+</body>
+</html>

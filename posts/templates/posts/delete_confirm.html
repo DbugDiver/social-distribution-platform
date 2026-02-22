@@ -1,0 +1,19 @@
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <title>Delete</title>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+</head>
+<body>
+  <h1>Delete post?</h1>
+  <p>{{ post.title|default:"(no title)" }}</p>
+
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit">Yes, delete</button>
+  </form>
+
+  <p><a href="{% url 'posts:detail' post.id %}">Cancel</a></p>
+</body>
+</html>

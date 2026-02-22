@@ -1,0 +1,143 @@
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <title>{{ mode }} Post</title>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">SocialDistribution</div>
+    <nav class="topbar-nav">
+      <a href="{% url 'posts:stream' %}" class="nav-link">Stream</a>
+      <a href="{% url 'posts:create' %}" class="nav-link active">New</a>
+    </nav>
+  </div>
+</header>
+
+<main class="page">
+  <div class="layout" style="grid-template-columns: 1fr;">
+    <section class="feed">
+      <h1 class="feed-title">{{ mode }} Post</h1>
+
+      <article class="post-card">
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+
+          <!-- Show non-field errors -->
+          {% if form.non_field_errors %}
+            <div class="form-errors">{{ form.non_field_errors }}</div>
+          {% endif %}
+
+          <!-- Title -->
+          <div class="form-row">
+            <label class="form-label" for="{{ form.title.id_for_label }}">Title</label>
+            {{ form.title }}
+            {% for e in form.title.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+          </div>
+
+          <!-- Content Type -->
+          <div class="form-row">
+            <label class="form-label" for="{{ form.content_type.id_for_label }}">Content type</label>
+            {{ form.content_type }}
+            {% for e in form.content_type.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+          </div>
+
+          <!-- Markdown toolbar (shows only when content_type = text/markdown) -->
+          <div id="md-toolbar" class="md-toolbar" style="display:none;">
+            <button type="button" class="md-btn" onclick="wrapText('**')"><b>B</b></button>
+            <button type="button" class="md-btn" onclick="wrapText('*')"><i>I</i></button>
+            <button type="button" class="md-btn" onclick="wrapText('`')">Code</button>
+            <button type="button" class="md-btn" onclick="insertLink()">Link</button>
+            <span class="md-hint">Markdown enabled</span>
+          </div>
+
+          <!-- Content -->
+          <div class="form-row">
+            <label class="form-label" for="{{ form.content.id_for_label }}">Content</label>
+            {{ form.content }}
+            {% for e in form.content.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+          </div>
+
+          <!-- Optional image upload -->
+          <div class="form-row" id="image-row">
+            <label class="form-label" for="{{ form.image.id_for_label }}">Optional image</label>
+            {{ form.image }}
+            {% for e in form.image.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+          </div>
+
+          <!-- Visibility -->
+          <div class="form-row">
+            <label class="form-label" for="{{ form.visibility.id_for_label }}">Visibility</label>
+            {{ form.visibility }}
+            {% for e in form.visibility.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="pill">Save</button>
+            <a class="pill" href="{% url 'posts:stream' %}">Cancel</a>
+          </div>
+        </form>
+      </article>
+    </section>
+  </div>
+</main>
+
+<script>
+  // Get the actual rendered IDs from Django form fields
+  const contentTypeEl = document.getElementById("{{ form.content_type.id_for_label }}");
+  const contentEl = document.getElementById("{{ form.content.id_for_label }}");
+  const toolbar = document.getElementById("md-toolbar");
+  const imageRow = document.getElementById("image-row");
+
+  function updateUI() {
+    if (!contentTypeEl) return;
+
+    const isMarkdown = (contentTypeEl.value === "text/markdown");
+
+    // toolbar only for markdown
+    if (toolbar) toolbar.style.display = isMarkdown ? "flex" : "none";
+
+    // image upload only for markdown (your requirement)
+    if (imageRow) {
+      imageRow.style.display = isMarkdown ? "block" : "none";
+
+      // optional: clear chosen file when switching to plain
+      if (!isMarkdown) {
+        const fileInput = imageRow.querySelector('input[type="file"]');
+        if (fileInput) fileInput.value = "";
+      }
+    }
+  }
+
+  // Run on load + on change
+  updateUI();
+  if (contentTypeEl) contentTypeEl.addEventListener("change", updateUI);
+
+  function wrapText(wrapper) {
+    if (!contentEl) return;
+    const start = contentEl.selectionStart ?? 0;
+    const end = contentEl.selectionEnd ?? 0;
+    const selected = contentEl.value.substring(start, end);
+    contentEl.setRangeText(wrapper + selected + wrapper, start, end, "end");
+    contentEl.focus();
+  }
+
+  function insertLink() {
+    if (!contentEl) return;
+    const text = "[text](https://example.com)";
+    contentEl.setRangeText(text, contentEl.selectionStart, contentEl.selectionEnd, "end");
+    contentEl.focus();
+  }
+
+  function insertImage() {
+    if (!contentEl) return;
+    const text = "![alt text](https://example.com/image.png)";
+    contentEl.setRangeText(text, contentEl.selectionStart, contentEl.selectionEnd, "end");
+    contentEl.focus();
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <title>{{ post.title|default:"Post" }}</title>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+</head>
+<body>
+  <p><a href="{% url 'posts:stream' %}">← back</a></p>
+
+  <h1>{{ post.title|default:"(no title)" }}</h1>
+  <p>by {{ post.author.username }} · {{ post.created }}</p>
+
+  {% if post.is_image %}
+    <img src="{{ post.image.url }}" style="max-width:800px;" />
+  {% else %}
+    {% if post.content_type == "text/markdown" %}
+      <div>{{ rendered|safe }}</div>
+    {% else %}
+      <pre style="white-space:pre-wrap;">{{ post.content }}</pre>
+    {% endif %}
+  {% endif %}
+
+  {% if user.is_authenticated and user.id == post.author_id %}
+    <p>
+      <a href="{% url 'posts:edit' post.id %}">Edit</a>
+      ·
+      <a href="{% url 'posts:delete' post.id %}">Delete</a>
+    </p>
+  {% endif %}
+</body>
+</html>
