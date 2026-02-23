@@ -13,6 +13,7 @@ class Author(AbstractUser):
     displayName = models.CharField(max_length=255, blank=True)
     github = models.URLField(max_length=255, blank=True, null=True)
     profileImage = models.URLField(max_length=500, blank=True, null=True)
+    bio = models.TextField(blank=True, default="")
 
     def get_fqid(self):
         """Generates the exact URL-based ID required by the spec"""

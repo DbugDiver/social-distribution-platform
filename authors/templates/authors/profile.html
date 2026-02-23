@@ -30,11 +30,34 @@
     <h2 style="margin: 0">
         {{ profile_user.displayName|default:profile_user.username }}
     </h2>
-    <p style="color: var(--text-muted)">@{{ profile_user.id }}</p>
+    <p style="color: var(--text-muted); margin-bottom: 5px">
+        @{{ profile_user.username }}
+    </p>
 
-    {% if request.user == profile_user %}
+    {% if profile_user.github %}
+    <p style="margin-top: 0; margin-bottom: 15px">
+        <a
+            href="{{ profile_user.github }}"
+            target="_blank"
+            style="color: var(--accent); text-decoration: none"
+        >
+            🔗 View GitHub
+        </a>
+    </p>
+    {% endif %} {% if profile_user.bio %}
+    <p
+        style="
+            padding: 10px;
+            background: var(--bg-color);
+            border-left: 3px solid var(--accent);
+            text-align: left;
+        "
+    >
+        {{ profile_user.bio }}
+    </p>
+    {% endif %} {% if request.user == profile_user %}
     <a
-        href="#"
+        href="{% url 'edit-profile' %}"
         class="btn btn-outline"
         style="display: inline-block; margin-top: 10px"
         >Edit Profile</a

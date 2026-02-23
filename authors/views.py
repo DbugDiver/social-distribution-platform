@@ -1,8 +1,10 @@
 from socket import timeout
 
 import requests
-from django.shortcuts import get_object_or_404, render
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, redirect, render
 
+from .forms import AuthorUpdateForm
 from .models import Author
 
 
@@ -42,10 +44,19 @@ def author_profile(request, pk):
     return render(request, "authors/profile.html", context)
 
 
-# def fetch_github_activity(github_url):
-#     # Extract username from URL (e.g., https://github.com/torvalds -> torvalds)
-#     username = github_url.strip('/').split('/')[-1]
-#     response = requests.get(f'https://api.github.com/users/{username}/events/public')
-#     if response.status_code == 200:
-#         return response.json()[:5]  # Return the 5 most recent events
-#     return []
+@login_required
+def edit_profile(request):
+    """Edit Profile Logic"""
+    # Grab the currently logged-in user
+    author = request.user
+
+    if request.method == "POST":
+        form = AuthorUpdateForm(request.POST, instance=author)
+        if form.is_valid():
+            form.save()
+            return redirect("author-profile", pk=author.pk)
+    else:
+        # If it's a GET request, load the form pre-filled with their current info
+        form = AuthorUpdateForm(instance=author)
+
+    return render(request, "authors/edit_profile.html", {"form": form})
