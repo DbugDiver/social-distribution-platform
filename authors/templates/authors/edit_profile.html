@@ -1,61 +1,42 @@
-{% extends 'authors/base.html' %} {% block content %}
-<div
-    class="post-card"
-    style="
-        max-width: 500px;
-        margin: 40px auto;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-    "
->
-    <h2 style="margin-top: 0; color: var(--accent)">Edit Profile</h2>
+{% extends "authors/base.html" %}
+{% block content %}
 
-    <form method="POST">
-        {% csrf_token %} {% for field in form %}
-        <div style="margin-bottom: 15px">
-            <label
-                style="
-                    display: block;
-                    margin-bottom: 5px;
-                    color: var(--text-muted);
-                    font-weight: bold;
-                "
-            >
+<main class="page">
+  <div class="layout" style="grid-template-columns: 1fr;">
+    <section class="feed">
+      <h1 class="feed-title">Edit Profile</h1>
+
+      <article class="post-card" style="max-width: 520px; margin: 0 auto;">
+        <form method="POST">
+          {% csrf_token %}
+
+          {% for field in form %}
+            <div class="form-row">
+              <label class="form-label" for="{{ field.id_for_label }}">
                 {{ field.label }}
-            </label>
-            {{ field }} {% if field.help_text %}
-            <small style="color: var(--text-muted)"
-                >{{ field.help_text }}</small
-            >
-            {% endif %}
-        </div>
-        {% endfor %}
+              </label>
 
-        <div style="margin-top: 20px; text-align: right">
-            <a
-                href="{% url 'author-profile' pk=request.user.id %}"
-                class="btn btn-outline"
-                style="margin-right: 10px"
-                >Cancel</a
-            >
-            <button type="submit" class="btn">Save Changes</button>
-        </div>
-    </form>
-</div>
+              {{ field }}
 
-<style>
-    .form-control {
-        width: 100%;
-        padding: 10px;
-        background-color: var(--bg-color);
-        border: 1px solid var(--border);
-        color: var(--text-main);
-        border-radius: 4px;
-        box-sizing: border-box;
-    }
-    .form-control:focus {
-        outline: none;
-        border-color: var(--accent);
-    }
-</style>
+              {% for e in field.errors %}
+                <div class="field-error">{{ e }}</div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+
+          <div class="form-actions" style="justify-content: flex-end;">
+            <a href="{% url 'author-profile' pk=request.user.pk %}" class="pill">
+              Cancel
+            </a>
+
+            <button type="submit" class="pill">
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </article>
+    </section>
+  </div>
+</main>
+
 {% endblock %}

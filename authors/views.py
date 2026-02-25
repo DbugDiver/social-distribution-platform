@@ -10,7 +10,7 @@ from .models import Author
 
 def home_feed(request):
     """Main Page"""
-    return render(request, "authors/home.html")
+    return render(request, "posts/stream.html")
 
 
 def author_profile(request, pk):

@@ -16,6 +16,15 @@
       {% if user.is_authenticated %}
         <!-- Only show option to create a post to logged-in/authenticated users -->
         <a href="{% url 'posts:create' %}" class="nav-link">+ New Post</a>
+
+        <!-- Profile icon button (top-right) -->
+        <a href="{% url 'author-profile' pk=request.user.pk %}"
+          class="icon-btn profile-btn"
+          title="Profile">
+          👤
+        </a>
+      {% else %}
+        <a href="{% url 'login' %}" class="nav-link">Login</a>
       {% endif %}
     </nav>
   </div>
