@@ -36,6 +36,7 @@ LOGOUT_REDIRECT_URL = "/"
 
 INSTALLED_APPS = [
     'posts',
+    'authors',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -125,3 +126,4 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
+AUTH_USER_MODEL = "authors.Author"
