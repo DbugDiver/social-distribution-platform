@@ -1,0 +1,25 @@
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <title>{{ post.title }}</title>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+</head>
+<body>
+
+<h1>{{ post.title }}</h1>
+
+<p><strong>Author:</strong> {{ post.author.username }}</p>
+<p><strong>Created:</strong> {{ post.created }}</p>
+<p><strong>Visibility:</strong> {{ post.visibility }}</p>
+
+{% if rendered %}
+  <div>{{ rendered|safe }}</div>
+{% else %}
+  <p>{{ post.content }}</p>
+{% endif %}
+
+<a href="{% url 'posts:stream' %}">Back to Stream</a>
+
+</body>
+</html>

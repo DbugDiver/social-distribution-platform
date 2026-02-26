@@ -62,7 +62,9 @@
           <!-- Only show the title if the post has one -->
           {% if post.title %}
             <h3 class="post-title">
-              {{ post.title }}
+              <a href="{% url 'posts:detail' post.id %}">
+                  {{ post.title }}
+              </a>
             </h3>
           {% endif %}
 
