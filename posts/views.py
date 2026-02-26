@@ -5,6 +5,8 @@ from django.utils import timezone
 import markdown as md
 from .forms import PostForm
 from .models import Post
+from django.db.models import Q
+
 
 try:
     import markdown
@@ -25,8 +27,15 @@ It will GET the posts that are not deleted, ordered by created time (newest firs
 Then it will loop through the posts. If the content type is markdown then convert it to HTML.
 Finally, it will send the posts to the stream.html template for rendering.
 """
+@login_required   # Posts only stream when account exists and logged in
 def stream(request):
-    posts = Post.objects.filter(deleted=False).order_by("-created") # GET the posts that are not deleted, ordered
+    user = request.user     #get current user
+    posts = Post.objects.filter(
+            Q(author=user) |   #all posts posted by user even if unlisted or friends only
+            Q(visibility=Post.Visibility.PUBLIC)  #all public posts
+            ).filter(deleted=False
+            ).order_by("-created") # GET the posts that are not deleted, ordered
+    # |Q(author__in=following, visibility=Post.Visibility.FRIENDS) # later for friends only
     for p in posts:
         if p.content_type == Post.ContentType.MARKDOWN:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
