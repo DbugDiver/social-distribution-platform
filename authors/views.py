@@ -155,7 +155,7 @@ def friends_list(request):
 @login_required
 def inbox(request):
     """Show notifications for logged-in user"""
-    author = request.user
-    notifications = Notification.objects.filter(recipient=author).select_related("sender").order_by("-created_at")
-    context = {"notifications": notifications}
-    return render(request, "authors/inbox.html", context)
+    author=request.user
+    notifications=Notification.objects.filter(recipient=author).select_related("sender").order_by("-created_at")
+    context={"notifications": notifications}
+    return render(request,"authors/inbox.html",context)
