@@ -1,0 +1,28 @@
+{%extends "authors/base.html" %}
+{% block content %}
+<main class="page">
+  <div class="layout" style="grid-template-columns: 1fr;">
+    <section class="feed">
+      <h1 class="feed-title">Follow Requests</h1>
+      {% for req in pending_follow_requests %}
+        <article class="post-card">
+          <p>
+            <strong>{{ req.follower.displayName|default:req.follower.username }}</strong>
+            wants to follow you
+          </p>
+          <div class="form-actions">
+            <a href="{% url 'accept-follow-request' req.follower.id %}" class="pill">
+              Accept
+            </a>
+            <a href="{% url 'reject-follow-request' req.follower.id %}" class="pill danger">
+              Reject
+            </a>
+          </div>
+        </article>
+      {% empty %}
+        <p>No follow requests.</p>
+      {% endfor %}
+    </section>
+  </div>
+</main>
+{% endblock %}

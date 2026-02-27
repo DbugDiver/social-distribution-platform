@@ -22,3 +22,15 @@ class Author(AbstractUser):
 
     def __str__(self):
         return self.displayName or self.username
+class Follower(models.Model):
+    choices=[("pending","pending"),("accepted","accepted"),("rejected","rejected")]
+    follower=models.ForeignKey(Author,on_delete=models.CASCADE,related_name="following_relationships")
+    following=models.ForeignKey(Author,on_delete=models.CASCADE,related_name="follower_relationships")
+    status=models.CharField(max_length=20,choices=choices,default="pending")
+    time_created=models.DateTimeField(auto_now_add=True)
+    #i got the Meta from GPT and it does not allow the same follower to follow the same following more than once, it will raise an error if we try to create a duplicate entry in the database
+    class Meta:
+        unique_together = ("follower", "following")
+
+    def __str__(self):
+        return f"{self.follower} → {self.following} ({self.status})"

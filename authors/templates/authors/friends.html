@@ -1,0 +1,19 @@
+{% extends "authors/base.html" %}
+{% block content %}
+<main class="page">
+  <div class="layout" style="grid-template-columns: 1fr;">
+    <section class="feed">
+      <h1 class="feed-title">Friends</h1>
+      {% for friend in friends %}
+        <article class="post-card">
+          <a href="{% url 'author-profile' friend.id %}">
+            {{ friend.displayName|default:friend.username }}
+          </a>
+        </article>
+      {% empty %}
+        <p>No friends yet.</p>
+      {% endfor %}
+    </section>
+  </div>
+</main>
+{% endblock %}

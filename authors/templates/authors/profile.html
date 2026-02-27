@@ -47,6 +47,15 @@
           <div class="form-actions" style="justify-content:center; margin-top:12px;">
             <a href="{% url 'edit-profile' %}" class="pill">Edit Profile</a>
           </div>
+        {% elif request.user.is_authenticated %}
+          <div class="form-actions" style="justify-content:center; margin-top:12px;">
+            <a href="{% url 'send-follow-request' profile_user.id %}" class="pill">
+              Follow
+            </a>
+            <a href="{% url 'unfollow' profile_user.id %}" class="pill danger">
+              Unfollow
+            </a>
+          </div>
         {% endif %}
       </div>
 
