@@ -12,6 +12,10 @@
     <div class="brand">SocialDistribution</div>
     <nav class="header-nav">
       <a href="{% url 'inbox' %}" class="nav-link">Inbox</a>
+      <form method="GET" action="{% url 'author-search' %}" class="search-form">
+        <input type="text" name="q" placeholder="Search users..." class="search-input">
+        <button type="submit" class="icon-btn">🔍</button>
+      </form>
       <a href="{% url 'posts:stream' %}" class="nav-link {% if feed_title == 'Public Stream' %}active{% endif %}">Public</a>
       <a href="{% url 'posts:friends-feed' %}" class="nav-link {% if feed_title == 'Friends Feed' %}active{% endif %}">Friends</a>
       {% if user.is_authenticated %}

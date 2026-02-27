@@ -579,3 +579,17 @@ body{
   box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.15);
   background-color: #e0f7fa;
 }
+/*search bar*/
+.search-form{
+  display:flex;
+  gap:6px;
+  align-items:center;
+}
+
+.search-input{
+  padding:8px 12px;
+  border-radius:999px;
+  border:none;
+  outline:none;
+  font-weight:600;
+}

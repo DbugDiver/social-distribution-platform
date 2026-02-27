@@ -1,0 +1,30 @@
+{% extends "authors/base.html" %}
+{% block content %}
+<div class="feed">
+    <div class="post-card">
+        <h2>Search Results</h2>
+        {% if query %}
+            Results for "<strong>{{ query }}</strong>"
+        {% endif %}
+    </div>
+    {% for author in results %}
+        <div class="post-card">
+            <div class="post-header">
+                <div class="avatar"></div>
+                <div>
+                    <div class="author">
+                        <a href="{% url 'author-profile' author.id %}">{{ author.displayName|default:author.username }}</a>
+                    </div>
+                    <div class="timestamp">
+                        @{{ author.username }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% empty %}
+        <div class="post-card">
+            No users found.
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}

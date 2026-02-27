@@ -28,4 +28,5 @@ urlpatterns = [
     path("friends/", views.mutual_following_became_friends, name="friends"),
     path("friends-list/", views.friends_list, name="friends-list"),
     path("inbox/", views.inbox, name="inbox"),
+    path("search/", views.author_search, name="author-search"),
 ]

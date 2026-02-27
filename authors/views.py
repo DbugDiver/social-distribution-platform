@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from .forms import AuthorUpdateForm
 from .models import Author, Follower, Notification
 from posts.models import Post
+from django.db.models import Q
 
 def home_feed(request):
     """Main Page"""
@@ -159,3 +160,13 @@ def inbox(request):
     notifications=Notification.objects.filter(recipient=author).select_related("sender").order_by("-created_at")
     context={"notifications": notifications}
     return render(request,"authors/inbox.html",context)
+
+
+@login_required
+def author_search(request):
+    query=request.GET.get("q", "")
+    results = []
+    if query:
+        results = Author.objects.filter(Q(username__icontains=query) |Q(displayName__icontains=query)).exclude(id=request.user.id)
+    context = {"query": query,"results": results}
+    return render(request, "authors/search_results.html", context)
