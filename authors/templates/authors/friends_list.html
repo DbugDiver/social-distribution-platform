@@ -1,0 +1,45 @@
+{% extends 'authors/base.html' %}
+
+{% block content %}
+<main class="page">
+  <div class="layout" style="display:flex; gap: 2rem; flex-wrap: wrap; justify-content: center;">
+
+    <!-- Friends Section -->
+    <section class="feed" style="flex:1 1 300px;">
+      <h2 class="feed-title">Friends</h2>
+      {% if friends %}
+        <div class="card-container">
+          {% for friend in friends %}
+            <div class="friend-card">
+              <a href="{% url 'author-profile' pk=friend.pk %}">
+                {{ friend.displayName|default:friend.username }}
+              </a>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p>You have no friends yet.</p>
+      {% endif %}
+    </section>
+
+    <!-- Following Section -->
+    <section class="feed" style="flex:1 1 300px;">
+      <h2 class="feed-title">Following</h2>
+      {% if following %}
+        <div class="card-container">
+          {% for f in following %}
+            <div class="friend-card">
+              <a href="{% url 'author-profile' pk=f.pk %}">
+                {{ f.displayName|default:f.username }}
+              </a>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p>You are not following anyone yet.</p>
+      {% endif %}
+    </section>
+
+  </div>
+</main>
+{% endblock %}

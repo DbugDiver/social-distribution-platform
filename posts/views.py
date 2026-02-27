@@ -3,6 +3,8 @@ from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 import markdown as md
+
+from authors.models import Author, Follower
 from .forms import PostForm
 from .models import Post
 from django.db.models import Q
@@ -142,3 +144,19 @@ def delete(request, post_id):
         post.save(update_fields=["deleted", "updated"])
         return redirect("posts:stream")
     return render(request, "posts/delete_confirm.html", {"post": post})
+
+
+@login_required
+def friends_feed(request):
+    """Show posts from friends only (mutual followers)"""
+    author=request.user
+
+    # Get friends: authors who you follow AND who follow you back
+    following=Follower.objects.filter(follower=author, status="accepted").values_list("following", flat=True)
+    followers=Follower.objects.filter(following=author, status="accepted").values_list("follower", flat=True)
+    friends=Author.objects.filter(id__in=following).filter(id__in=followers)
+
+    # Fetch posts by friends
+    posts=Post.objects.filter(author__in=friends).order_by("-created")
+    context={"posts": posts,"feed_title": "Friends Feed",}
+    return render(request, "posts/stream.html", context)

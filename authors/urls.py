@@ -26,4 +26,6 @@ urlpatterns = [
     path("follow-requests-list/", views.follow_requests, name="follow-requests-list"),
     path("<uuid:pk>/unfollow/", views.unfollow, name="unfollow"),
     path("friends/", views.mutual_following_became_friends, name="friends"),
+    path("friends-list/", views.friends_list, name="friends-list"),
+    path("inbox/", views.inbox, name="inbox"),
 ]

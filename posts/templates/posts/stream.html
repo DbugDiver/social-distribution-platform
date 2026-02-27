@@ -11,8 +11,9 @@
   <div class="header-inner">
     <div class="brand">SocialDistribution</div>
     <nav class="header-nav">
-      <a href="{% url 'posts:stream' %}" class="nav-link active">Public</a>
-      <a href="#" class="nav-link">Friends</a> <!-- Friends Tab on header is not implemented yet -->
+      <a href="{% url 'inbox' %}" class="nav-link">Inbox</a>
+      <a href="{% url 'posts:stream' %}" class="nav-link {% if feed_title == 'Public Stream' %}active{% endif %}">Public</a>
+      <a href="{% url 'posts:friends-feed' %}" class="nav-link {% if feed_title == 'Friends Feed' %}active{% endif %}">Friends</a>
       {% if user.is_authenticated %}
         <!-- Only show option to create a post to logged-in/authenticated users -->
         <a href="{% url 'posts:create' %}" class="nav-link">+ New Post</a>
@@ -121,9 +122,8 @@
         <p class="side-text">
           (Coming next) Shows posts visible only to friends. <!-- Placeholder text for the friends feed, which is not implemented yet -->
         </p>
-
         <div class="side-actions">
-          <a class="pill" href="#">View Friends Feed</a> <!-- Link to friends feed, which is not implemented yet -->
+          <a class="pill" href="{% url 'friends-list' %}">View Friends & Following</a>
         </div>
       </div>
 

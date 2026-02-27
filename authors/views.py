@@ -5,8 +5,8 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import AuthorUpdateForm
-from .models import Author, Follower
-
+from .models import Author, Follower, Notification
+from posts.models import Post
 
 def home_feed(request):
     """Main Page"""
@@ -71,7 +71,14 @@ def send_a_follow_request(request,pk):
     if author==following:
         return redirect("author-profile",pk=pk)
     #check if the follow request already exists
-    Follower.objects.get_or_create(follower=author,following=following,defaults={"status": "pending"}) #create a new follow request for the following author, if it already exists, do nothing
+    follow_object,created=Follower.objects.get_or_create(follower=author,following=following,defaults={"status": "pending"}) #create a new follow request for the following author, if it already exists, do nothing
+    if created:
+        Notification.objects.create(
+            recipient=following,
+            sender=author,
+            notification_type="follow_request",
+            message=f"{author.displayName or author.username} wants to follow you."
+        )
     return redirect("author-profile",pk=pk)
 
 @login_required
@@ -83,6 +90,8 @@ def accept_follow_request(request,pk):
     follow_request=get_object_or_404(Follower,follower=follower,following=author) #get the follow request, if it does not exist, return a 404 error
     follow_request.status="accepted" #update the status of the follow request to accepted
     follow_request.save() #save the changes to the database
+    Notification.objects.create(recipient=follower,sender=author,notification_type="follow_accepted",message=f"{author.displayName} accepted your follow request")
+
     return redirect("author-profile",pk=author.pk)
 @login_required
 def reject_follow_request(request,pk):
@@ -123,3 +132,30 @@ def mutual_following_became_friends(request):
     friends=Author.objects.filter(id__in=following).filter(id__in=followers) #get all the authors that are both following the logged-in author and that are being followed by the logged-in author, these are the friends of the logged-in author
     context={"friends": friends}                #create a context dictionary to pass the friends to the template
     return render(request, "authors/friends.html", context)
+@login_required
+def friends_list(request):
+    """Show friends (mutual followers) and all authors the user is following"""
+    author = request.user
+
+    # Mutual friends
+    following_ids = Follower.objects.filter(follower=author, status="accepted").values_list("following", flat=True)
+    followers_ids = Follower.objects.filter(following=author, status="accepted").values_list("follower", flat=True)
+    friends = Author.objects.filter(id__in=following_ids).filter(id__in=followers_ids)
+
+    # Everyone the user is following (accepted only)
+    following = Author.objects.filter(id__in=following_ids)
+
+    context = {
+        "friends": friends,
+        "following": following,
+    }
+
+    return render(request, "authors/friends_list.html", context)
+
+@login_required
+def inbox(request):
+    """Show notifications for logged-in user"""
+    author = request.user
+    notifications = Notification.objects.filter(recipient=author).select_related("sender").order_by("-created_at")
+    context = {"notifications": notifications}
+    return render(request, "authors/inbox.html", context)
