@@ -33,8 +33,8 @@ Finally, it will send the posts to the stream.html template for rendering.
 def stream(request):
     user = request.user     #get current user
     posts = Post.objects.filter(
-            Q(author=user) |   #all posts posted by user even if unlisted or friends only
-            Q(visibility=Post.Visibility.PUBLIC)  #all public posts
+            #Q(author=user) |   #all posts posted by user even if unlisted or friends only
+            Q(visibility=Post.Visibility.PUBLIC)  #all public posts even if author is user
             ).filter(deleted=False
             ).order_by("-created") # GET the posts that are not deleted, ordered
     #-> |Q(author__in=following, visibility=Post.Visibility.FRIENDS) # later for friends only
@@ -43,7 +43,7 @@ def stream(request):
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
         else:
             p.rendered = None
-    return render(request, "posts/stream.html", {"posts": posts}) # Send the posts to the stream.html template
+    return render(request, "posts/stream.html", {"posts": posts,"feed_title": "Public Stream",}) # Send the posts to the stream.html template
 
 """
 This function handle the logic for displaying the details of a single post.
@@ -147,16 +147,21 @@ def delete(request, post_id):
 
 
 @login_required
-def friends_feed(request):
+def followers_feed(request):
     """Show posts from friends only (mutual followers)"""
     author=request.user
-
     # Get friends: authors who you follow AND who follow you back
     following=Follower.objects.filter(follower=author, status="accepted").values_list("following", flat=True)
     followers=Follower.objects.filter(following=author, status="accepted").values_list("follower", flat=True)
     friends=Author.objects.filter(id__in=following).filter(id__in=followers)
-
+    print("Friends IDs:", list(friends.values_list("id", flat=True)))
     # Fetch posts by friends
-    posts=Post.objects.filter(author__in=friends).order_by("-created")
-    context={"posts": posts,"feed_title": "Friends Feed",}
+    unlisted_posts = Post.objects.filter(author_id__in=following,visibility="UNLISTED")
+    #posts=Post.objects.filter(author__in=friends).order_by("-created")
+    posts = Post.objects.filter(
+                Q(author_id__in=following, visibility="UNLISTED") | #all unlisted posts from following
+                Q(author__in=friends)|     #all mutual posts
+                Q(author_id = request.user)   #my own created posts of all visibiliyt type
+                ).order_by("-created")
+    context={"posts": posts,"feed_title": "Followers Feed",}
     return render(request, "posts/stream.html", context)
