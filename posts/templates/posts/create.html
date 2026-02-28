@@ -4,16 +4,17 @@
 <head>
   <title>{{ mode }} Post</title>
   <link rel="stylesheet" href="{% static 'honeydew/style.css' %}"> <!-- Load the CSS file for styling -->
+</head>
 <body>
 
 <header class="header">
-  <div class="header-inner">
-    <div class="brand">SocialDistribution</div>
-  </div>
+  <section class="header-inner">
+    <p class="brand">SocialDistribution</p>
+  </section>
 </header>
 
 <main class="page">
-  <div class="layout" style="grid-template-columns: 1fr;">
+  <section class="layout" style="grid-template-columns: 1fr;">
     <section class="feed">
       <h1 class="feed-title">{{ mode }} Post</h1>
       <article class="post-card">
@@ -24,14 +25,18 @@
         The form displays validation errors if there are any. -->
         <form method="post" enctype="multipart/form-data">
           {% csrf_token %}
+
           {% if form.non_field_errors %}
-            <div class="form-errors">{{ form.non_field_errors }}</div>
+            <section class="form-errors">{{ form.non_field_errors }}</section>
           {% endif %}
-          <div class="form-row">
+
+          <section class="form-row">
             <label class="form-label" for="{{ form.title.id_for_label }}">Title</label>
             {{ form.title }}
-            {% for e in form.title.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
-          </div>
+            {% for e in form.title.errors %}
+              <p class="field-error">{{ e }}</p>
+            {% endfor %}
+          </section>
 
           <!-- 
             This section renders the Content Type dropdown field from the Django form.
@@ -39,14 +44,15 @@
             content-type is Markdown by default, but users can choose plain text if they want. Check this on models.py
             Errors are shown if present, they come from form validation inside PostForm in forms.py if specified
           -->
-          <div class="form-row">
+          <section class="form-row">
             <label class="form-label" for="{{ form.content_type.id_for_label }}">Content type</label>
             {{ form.content_type }}
             {% for e in form.content_type.errors %}
-            <div class="field-error">
-              {{ e }}
-            </div>{% endfor %}
-          </div>
+              <p class="field-error">
+                {{ e }}
+              </p>
+            {% endfor %}
+          </section>
           
           <!-- 
           Rosy: I want to add markdown for my html file giveme ideas on how to bold,italics, and add link
@@ -55,45 +61,51 @@
           -->
 
           <!-- Markdown toolbar (shows only when content_type = Markdown) -->
-          <div id="md-toolbar" class="md-toolbar" style="display:none;">
+          <section id="md-toolbar" class="md-toolbar" style="display:none;">
             <button type="button" class="md-btn" onclick="wrapText('**')"><b>B</b></button>
             <button type="button" class="md-btn" onclick="wrapText('*')"><i>I</i></button>
             <button type="button" class="md-btn" onclick="wrapText('`')">Code</button>
-            <button type="button" class="md-btn" onclick="insertLink()">Link</button>
-            <span class="md-hint">Markdown enabled</span>
-          </div>
+            <button type="button" class="md-btn" onclick="insertLink(event)">Link</button>
+            <p class="md-hint">Markdown enabled</p>
+          </section>
 
           <!-- Content -->
-          <div class="form-row">
+          <section class="form-row">
             <label class="form-label" for="{{ form.content.id_for_label }}">Content</label>
             {{ form.content }} <!-- Textarea for the content of the post -->
-            {% for e in form.content.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
-          </div>
+            {% for e in form.content.errors %}
+              <p class="field-error">{{ e }}</p>
+            {% endfor %}
+          </section>
 
           <!-- Optional image upload -->
-          <div class="form-row" id="image-row">
+          <section class="form-row" id="image-row">
             <label class="form-label" for="{{ form.image.id_for_label }}">Optional image</label>
             {{ form.image }}
-            {% for e in form.image.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
-          </div>
+            {% for e in form.image.errors %}
+              <p class="field-error">{{ e }}</p>
+            {% endfor %}
+          </section>
 
           <!-- Visibility -->
-          <div class="form-row">
+          <section class="form-row">
             <label class="form-label" for="{{ form.visibility.id_for_label }}">Visibility</label>
             {{ form.visibility }}
-            {% for e in form.visibility.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
-          </div>
+            {% for e in form.visibility.errors %}
+              <p class="field-error">{{ e }}</p>
+            {% endfor %}
+          </section>
 
-          <div class="form-actions">
+          <section class="form-actions">
             <button type="submit" class="pill">Save</button>
             <a class="pill" href="{% url 'posts:stream' %}">Cancel</a> <!-- Link to go back to the stream page -->
-          </div>
+          </section>
+
         </form>
       </article>
     </section>
-  </div>
+  </section>
 </main>
-
 
 <script>
   // Get the actual rendered IDs from Django form fields
@@ -141,12 +153,30 @@
     contentEl.focus();
   }
 
-  function insertLink() {
-    // Insert markdown syntax for a link at the current cursor position in the content textarea
+  function insertLink(e) {
+    if (e) e.preventDefault();
+
+    // FIX: use the Django-safe contentEl defined at the top (do NOT query by "content")
     if (!contentEl) return;
-    const text = "[text](https://example.com)";
-    contentEl.setRangeText(text, contentEl.selectionStart, contentEl.selectionEnd, "end");
+
+    const start = contentEl.selectionStart ?? 0;
+    const end = contentEl.selectionEnd ?? 0;
+    const selectedText = contentEl.value.slice(start, end) || "link text";
+
+    const url = prompt("Enter the URL:");
+    if (!url) return; // user cancelled
+
+    const markdown = `[${selectedText}](${url})`;
+
+    contentEl.setRangeText(markdown, start, end, "end");
     contentEl.focus();
+
+    // Optional UX: if nothing was selected, highlight "link text" so you can type over it
+    if (start === end) {
+      const textStart = start + 1; // after '['
+      const textEnd = textStart + "link text".length;
+      contentEl.setSelectionRange(textStart, textEnd);
+    }
   }
 </script>
 </body>

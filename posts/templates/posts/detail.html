@@ -1,25 +1,43 @@
 {% load static %}
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <title>{{ post.title }}</title>
   <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
 </head>
 <body>
 
-<h1>{{ post.title }}</h1>
+<main>
+  <article aria-labelledby="post-title">
+    <header>
+      <h1 id="post-title">{{ post.title }}</h1>
 
-<p><strong>Author:</strong> {{ post.author.username }}</p>
-<p><strong>Created:</strong> {{ post.created }}</p>
-<p><strong>Visibility:</strong> {{ post.visibility }}</p>
+      <dl>
+        <dt><strong>Author:</strong></dt>
+        <dd>{{ post.author.username }}</dd>
 
-{% if rendered %}
-  <div>{{ rendered|safe }}</div>
-{% else %}
-  <p>{{ post.content }}</p>
-{% endif %}
+        <dt><strong>Created:</strong></dt>
+        <dd>
+          <time datetime="{{ post.created|date:'c' }}">{{ post.created }}</time>
+        </dd>
 
-<a href="{% url 'posts:stream' %}">Back to Stream</a>
+        <dt><strong>Visibility:</strong></dt>
+        <dd>{{ post.visibility }}</dd>
+      </dl>
+    </header>
 
+    <section aria-label="Post content">
+      {% if rendered %}
+        {{ rendered|safe }}
+      {% else %}
+        <p>{{ post.content }}</p>
+      {% endif %}
+    </section>
+
+    <footer>
+      <a href="{% url 'posts:stream' %}">Back to Stream</a>
+    </footer>
+  </article>
+</main>
 </body>
 </html>

@@ -8,16 +8,19 @@
 <body>
 
 <header class="header">
-  <div class="header-inner">
-    <div class="brand">SocialDistribution</div>
-    <nav class="header-nav">
+  <section class="header-inner">
+    <p class="brand">SocialDistribution</p>
+    <nav class="header-nav" aria-label="Primary navigation">
       <a href="{% url 'inbox' %}" class="nav-link">Inbox</a>
-      <form method="GET" action="{% url 'author-search' %}" class="search-form">
-        <input type="text" name="q" placeholder="Search users..." class="search-input">
-        <button type="submit" class="icon-btn">🔍</button>
+
+      <form method="GET" action="{% url 'author-search' %}" class="search-form" role="search">
+        <input type="text" name="q" placeholder="Search users..." class="search-input" aria-label="Search users">
+        <button type="submit" class="icon-btn" aria-label="Search">🔍</button>
       </form>
+
       <a href="{% url 'posts:stream' %}" class="nav-link {% if feed_title == 'Public Stream' %}active{% endif %}">Public</a>
       <a href="{% url 'posts:friends-feed' %}" class="nav-link {% if feed_title == 'Friends Feed' %}active{% endif %}">Friends</a>
+
       {% if user.is_authenticated %}
         <!-- Only show option to create a post to logged-in/authenticated users -->
         <a href="{% url 'posts:create' %}" class="nav-link">+ New Post</a>
@@ -25,131 +28,136 @@
         <!-- Profile icon button (top-right) -->
         <a href="{% url 'author-profile' pk=request.user.pk %}"
           class="icon-btn profile-btn"
-          title="Profile">
+          title="Profile"
+          aria-label="Profile">
           👤
         </a>
       {% else %}
         <a href="{% url 'login' %}" class="nav-link">Login</a>
       {% endif %}
     </nav>
-  </div>
+  </section>
 </header>
 
 <main class="page">
-  <div class="layout">
-    <!-- Main feed when we see public stream for now (Will change to friends only view when implemented)-->
-    <section class="feed">
+  <section class="layout" aria-label="Stream layout">
+
+    <!-- Main feed -->
+    <section class="feed" aria-label="Post feed">
       <h1 class="feed-title">{{ feed_title }}</h1>
+
       {% for post in posts %}
         <article class="post-card">
-          <div class="post-header-row">
-            <div class="post-header">
-              <div class="avatar"></div>
-              <div>
-                <div class="author">{{ post.author.username }}</div> <!--Post Cards should show the author's username -->
-                <div class="timestamp">{{ post.created }}</div> <!--Post Cards should show the timestamp of when the post was created -->
-              </div>
-            </div>
 
-            <!-- Only show edit/delete buttons if the user is authenticated and is the author of the post -->
+          <header class="post-header-row">
+            <address class="post-header">
+              {% if post.author.profileImage %}
+                <img
+                  src="{{ post.author.profileImage }}"
+                  class="avatar"
+                  alt="{{ post.author.username }} profile picture"
+                >
+              {% endif %}
+
+              <strong class="author">{{ post.author.username }}</strong>
+
+              <time class="timestamp" datetime="{{ post.created|date:'c' }}">
+                {{ post.created }}
+              </time>
+            </address>
+
+            <!-- Actions -->
             {% if user.is_authenticated and user.id == post.author_id %}
-              <div class="post-actions">
-                <a class="icon-btn" href="{% url 'posts:edit' post.id %}" title="Edit">✏️</a>
-                <a class="icon-btn danger"
-                  href="{% url 'posts:delete' post.id %}"
-                  title="Delete">
-                  🗑️
-                </a>
-              </div>
+              <nav class="post-actions" aria-label="Post actions">
+                <a class="icon-btn" href="{% url 'posts:edit' post.id %}" aria-label="Edit">✏️</a>
+                <a class="icon-btn danger" href="{% url 'posts:delete' post.id %}" aria-label="Delete">🗑️</a>
+              </nav>
             {% endif %}
-          </div>
 
-          <!-- Only show the title if the post has one -->
+          </header>
+
           {% if post.title %}
             <h3 class="post-title">
               <a href="{% url 'posts:detail' post.id %}">
-                  {{ post.title }}
+                {{ post.title }}
               </a>
             </h3>
           {% endif %}
 
-          <!-- Only show the image if the post has one -->
           {% if post.has_image %}
-            <div class="post-image-wrapper">
+            <figure class="post-image-wrapper">
               <img src="{{ post.image.url }}" class="post-image" alt="post image">
-            </div>
+            </figure>
           {% endif %}
 
-          <!-- Only show the content if the post has one -->
           {% if post.content %}
-            <div class="post-text-wrapper">
-              <!-- If the content is markdown, render it as HTML -->  
-              {% if post.content_type == "text/markdown" %}
-                <div class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
-                    id="content-{{ post.id }}">
-                  {{ post.rendered|safe }}
-                </div>
+            <section class="post-text-wrapper">
 
-              <!-- If the content is not markdown, just show it as plain text -->
+              {% if post.content_type == "text/markdown" %}
+                <section class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
+                         id="content-{{ post.id }}">
+                  {{ post.rendered|safe }}
+                </section>
               {% else %}
                 <p class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
-                  id="content-{{ post.id }}">
+                   id="content-{{ post.id }}">
                   {{ post.content }}
                 </p>
               {% endif %}
 
-              <!-- Only show the read more button if the content has more than 20 words 
-              After js(below on this page) implementation clicking on ReadMore will show all conent -->
               {% if post.content|wordcount > 20 %}
                 <button class="read-more-btn" type="button"
                         onclick="toggleContent('{{ post.id }}', this)">
                   Read more
                 </button>
               {% endif %}
+            </section>
+          {% endif %}
 
-            </div>
-          {% endif %}
         </article>
-        {% empty %}
-          {% if user.is_authenticated %}
-            <p class="empty">There are no posts to show.</p> <!-- If logged in and there are no posts, Display this message -->
-          {% else %}
-            <p class="empty">You must log in to access posts.</p> <!-- If not logged in, Display this message -->
-          {% endif %}
-        {% endfor %}
+
+      {% empty %}
+        {% if user.is_authenticated %}
+          <p class="empty">There are no posts to show.</p>
+        {% else %}
+          <p class="empty">You must log in to access posts.</p>
+        {% endif %}
+      {% endfor %}
     </section>
 
     <!-- Sidebar -->
     <aside class="sidebar">
-      <div class="side-card">
+      <section class="side-card">
         <h2 class="side-title">Friends Only</h2>
         <p class="side-text">
           (Coming next) Shows posts visible only to friends. <!-- Placeholder text for the friends feed, which is not implemented yet -->
         </p>
-        <div class="side-actions">
-          <a class="pill" href="{% url 'friends-list' %}">View Friends & Following</a>
-        </div>
-      </div>
+        <nav class="side-actions" aria-label="Friends actions">
+          <a class="pill" href="{% url 'friends-list' %}">
+            View Friends & Following
+          </a>
+        </nav>
+      </section>
 
-      <div class="side-card">
+      <section class="side-card">
         <h2 class="side-title">Quick Actions</h2> <!-- Quick actions for creating a post or logging in -->
         {% if user.is_authenticated %}
           <a class="pill" href="{% url 'posts:create' %}">+ Create Post</a> <!-- Link to create a new post, only visible to authenticated users -->
         {% else %}
           <a class="pill" href="{% url 'login' %}">Login to Post</a> <!-- Link to login page, only visible to unauthenticated users -->
         {% endif %}
-      </div>
+      </section>
     </aside>
-  </div>
+  </section>
 </main>
 
 <!-- Footer -->
 <footer class="footer">
-  <div class="footer-inner">
-    <span>© {{ now|default:"2026" }} SocialDistribution</span>
-    <span class="dot">•</span>
-    <span>Built with Django</span>
-  </div>
+  <section class="footer-inner">
+    <p>© {{ now|default:"2026" }} SocialDistribution</p>
+    •
+    <p>Built with Django</p>
+  </section>
 </footer>
 
 <script>

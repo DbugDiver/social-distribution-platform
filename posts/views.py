@@ -156,12 +156,12 @@ def followers_feed(request):
     friends=Author.objects.filter(id__in=following).filter(id__in=followers)
     print("Friends IDs:", list(friends.values_list("id", flat=True)))
     # Fetch posts by friends
-    unlisted_posts = Post.objects.filter(author_id__in=following,visibility="UNLISTED")
+    unlisted_posts = Post.objects.filter(author_id__in=following,visibility="UNLISTED", deleted=False)
     #posts=Post.objects.filter(author__in=friends).order_by("-created")
     posts = Post.objects.filter(
-                Q(author_id__in=following, visibility="UNLISTED") | #all unlisted posts from following
-                Q(author__in=friends)|     #all mutual posts
-                Q(author_id = request.user)   #my own created posts of all visibiliyt type
-                ).order_by("-created")
+            Q(author_id__in=following, visibility="UNLISTED") | #all unlisted posts from following
+            Q(author__in=friends) |     #all mutual posts
+            Q(author_id=request.user)   #my own created posts of all visibiliyt type
+            ).filter(deleted=False).order_by("-created")
     context={"posts": posts,"feed_title": "Followers Feed",}
     return render(request, "posts/stream.html", context)
