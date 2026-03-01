@@ -6,8 +6,14 @@ import markdown as md
 
 from authors.models import Author, Follower
 from .forms import PostForm
-from .models import Post
+from .models import Comment, Like, Post
 from django.db.models import Q
+
+"""
+Change citation (local project work):
+- Added comments/likes web interaction flow (stream + detail + POST handlers).
+- Added visibility/permission helpers for safe like/comment actions.
+"""
 
 
 try:
@@ -23,6 +29,27 @@ def _render_markdown(text: str) -> str:
         return text  # fallback: show as plain text if markdown lib not installed
     return markdown.markdown(text, extensions=["extra", "sane_lists"])
 
+
+def _is_friend(user, other):
+    # Changed section: mutual accepted follow check for FRIENDS visibility.
+    return (
+        Follower.objects.filter(follower=user, following=other, status="accepted").exists()
+        and Follower.objects.filter(follower=other, following=user, status="accepted").exists()
+    )
+
+
+def _can_interact_with_post(user, post):
+    # Changed section: centralized permission guard for like/comment actions.
+    if post.deleted:
+        return False
+    if post.visibility in [Post.Visibility.PUBLIC, Post.Visibility.UNLISTED]:
+        return user.is_authenticated
+    if not user.is_authenticated:
+        return False
+    if user == post.author:
+        return True
+    return _is_friend(user, post.author)
+
 """
 This function handle the logic for displaying the stream of posts.
 It will GET the posts that are not deleted, ordered by created time (newest first).
@@ -32,18 +59,50 @@ Finally, it will send the posts to the stream.html template for rendering.
 @login_required   # Posts only stream when account exists and logged in
 def stream(request):
     user = request.user     #get current user
-    posts = Post.objects.filter(
-            #Q(author=user) |   #all posts posted by user even if unlisted or friends only
-            Q(visibility=Post.Visibility.PUBLIC)  #all public posts even if author is user
-            ).filter(deleted=False
-            ).order_by("-created") # GET the posts that are not deleted, ordered
-    #-> |Q(author__in=following, visibility=Post.Visibility.FRIENDS) # later for friends only
+    # Changed section: stream includes counts and comment preview metadata for templates.
+    following_ids = Follower.objects.filter(
+        follower=user,
+        status="accepted",
+    ).values_list("following_id", flat=True)
+    posts = (
+        Post.objects.filter(deleted=False)
+        .filter(
+            Q(author=user)
+            | Q(visibility=Post.Visibility.PUBLIC)
+            | Q(
+                author_id__in=following_ids,
+                visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
+            )
+        )
+        .prefetch_related("comments__author", "comments__likes", "likes")
+        .order_by("-created")
+    )
+    post_liked_ids = set(
+        Like.objects.filter(author=user, post__in=posts).values_list("post_id", flat=True)
+    )
+    comment_liked_ids = set(
+        Like.objects.filter(author=user, comment__post__in=posts).values_list("comment_id", flat=True)
+    )
     for p in posts:
         if p.content_type == Post.ContentType.MARKDOWN:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
         else:
             p.rendered = None
-    return render(request, "posts/stream.html", {"posts": posts,"feed_title": "Public Stream",}) # Send the posts to the stream.html template
+        p.like_count = p.likes.count()
+        p.comment_count = p.comments.count()
+        p.liked_by_me = p.id in post_liked_ids
+        p.comment_list = list(p.comments.all()[:3])
+        for c in p.comment_list:
+            c.like_count = c.likes.count()
+            c.liked_by_me = c.id in comment_liked_ids
+    return render(
+        request,
+        "posts/stream.html",
+        {
+            "posts": posts,
+            "feed_title": "Public Stream",
+        },
+    ) # Send the posts to the stream.html template
 
 """
 This function handle the logic for displaying the details of a single post.
@@ -53,8 +112,6 @@ Finally, it will send the post content to the detail.html template for rendering
 """
 def detail(request, post_id):
     post = get_object_or_404(Post, id=post_id, deleted=False)
-    followers = [] #place holder for now 
-    #-> post.author.followers.all()
 
     # public everyone allowed
     if post.visibility == Post.Visibility.PUBLIC: pass # allowing direct link to all public
@@ -64,7 +121,7 @@ def detail(request, post_id):
     elif post.visibility == Post.Visibility.FRIENDS:
         if not request.user.is_authenticated:
             return HttpResponseForbidden("Login required.")
-        if request.user != post.author and request.user not in followers:
+        if request.user != post.author and not _is_friend(request.user, post.author):
             return HttpResponseForbidden("Not allowed.")
     # Safety fallback 
     else:
@@ -73,8 +130,82 @@ def detail(request, post_id):
     rendered = None
     if post.content_type == Post.ContentType.MARKDOWN:
         rendered = _render_markdown(post.content)
+
+    # Changed section: populate comment list + like state for detail template.
+    comments = post.comments.select_related("author").prefetch_related("likes")
+    comment_liked_ids = set()
+    post_liked_by_me = False
+    if request.user.is_authenticated:
+        comment_liked_ids = set(
+            Like.objects.filter(author=request.user, comment__post=post).values_list("comment_id", flat=True)
+        )
+        post_liked_by_me = Like.objects.filter(author=request.user, post=post).exists()
+    for c in comments:
+        c.like_count = c.likes.count()
+        c.liked_by_me = c.id in comment_liked_ids
+
    
-    return render(request, "posts/detail.html", {"post": post, "rendered": rendered})
+    return render(
+        request,
+        "posts/detail.html",
+        {
+            "post": post,
+            "rendered": rendered,
+            "comments": comments,
+            "post_liked_by_me": post_liked_by_me,
+        },
+    )
+
+
+@login_required
+def add_comment(request, post_id):
+    # Changed section: create a post comment from web form, then redirect back.
+    post = get_object_or_404(Post, id=post_id, deleted=False)
+    if request.method != "POST":
+        raise Http404()
+    if not _can_interact_with_post(request.user, post):
+        return HttpResponseForbidden("Not allowed.")
+
+    text = (request.POST.get("comment") or "").strip()
+    if text:
+        Comment.objects.create(
+            post=post,
+            author=request.user,
+            comment=text,
+            content_type=Comment.ContentType.PLAIN,
+        )
+
+    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("posts:detail", post_id=post.id).url
+    return redirect(next_url)
+
+
+@login_required
+def like_post(request, post_id):
+    # Changed section: idempotent post-like endpoint for web form submissions.
+    post = get_object_or_404(Post, id=post_id, deleted=False)
+    if request.method != "POST":
+        raise Http404()
+    if not _can_interact_with_post(request.user, post):
+        return HttpResponseForbidden("Not allowed.")
+
+    Like.objects.get_or_create(author=request.user, post=post)
+    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("posts:detail", post_id=post.id).url
+    return redirect(next_url)
+
+
+@login_required
+def like_comment(request, post_id, comment_id):
+    # Changed section: idempotent comment-like endpoint for web form submissions.
+    post = get_object_or_404(Post, id=post_id, deleted=False)
+    comment = get_object_or_404(Comment, id=comment_id, post=post)
+    if request.method != "POST":
+        raise Http404()
+    if not _can_interact_with_post(request.user, post):
+        return HttpResponseForbidden("Not allowed.")
+
+    Like.objects.get_or_create(author=request.user, comment=comment)
+    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("posts:detail", post_id=post.id).url
+    return redirect(next_url)
 
 """
   Rosy: I have a form that I want to use for posting. I want this form to craete, and edit posts. 
@@ -154,14 +285,12 @@ def followers_feed(request):
     following=Follower.objects.filter(follower=author, status="accepted").values_list("following", flat=True)
     followers=Follower.objects.filter(following=author, status="accepted").values_list("follower", flat=True)
     friends=Author.objects.filter(id__in=following).filter(id__in=followers)
-    print("Friends IDs:", list(friends.values_list("id", flat=True)))
+
     # Fetch posts by friends
-    unlisted_posts = Post.objects.filter(author_id__in=following,visibility="UNLISTED", deleted=False)
-    #posts=Post.objects.filter(author__in=friends).order_by("-created")
     posts = Post.objects.filter(
             Q(author_id__in=following, visibility="UNLISTED") | #all unlisted posts from following
             Q(author__in=friends) |     #all mutual posts
             Q(author_id=request.user)   #my own created posts of all visibiliyt type
             ).filter(deleted=False).order_by("-created")
-    context={"posts": posts,"feed_title": "Followers Feed",}
+    context={"posts": posts,"feed_title": "Friends Feed",}
     return render(request, "posts/stream.html", context)

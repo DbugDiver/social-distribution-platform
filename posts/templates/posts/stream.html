@@ -114,6 +114,47 @@
             </section>
           {% endif %}
 
+          <!-- Changed section: comments/likes summary + interaction controls -->
+          <div class="post-meta-row">
+            <span>❤️ {{ post.like_count }} like{{ post.like_count|pluralize }}</span>
+            <span>💬 {{ post.comment_count }} comment{{ post.comment_count|pluralize }}</span>
+          </div>
+
+          <div class="post-interactions">
+            <form method="post" action="{% url 'posts:like-post' post.id %}" class="inline-form">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <button type="submit" class="pill">{% if post.liked_by_me %}❤️ Liked{% else %}🤍 Like{% endif %}</button>
+            </form>
+
+            <form method="post" action="{% url 'posts:add-comment' post.id %}" class="inline-form comment-inline-form">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <input type="text" name="comment" placeholder="Write a comment..." class="comment-input" maxlength="1000" required>
+              <button type="submit" class="pill">Comment</button>
+            </form>
+          </div>
+
+          <!-- Changed section: preview of latest comments and comment-like button -->
+          {% if post.comment_list %}
+            <div class="comment-list">
+              {% for comment in post.comment_list %}
+                <div class="comment-item">
+                  <div class="comment-text"><strong>{{ comment.author.username }}:</strong> {{ comment.comment }}</div>
+                  <form method="post" action="{% url 'posts:like-comment' post.id comment.id %}" class="inline-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <button type="submit" class="comment-like-btn">
+                      {% if comment.liked_by_me %}❤️{% else %}🤍{% endif %} {{ comment.like_count }}
+                    </button>
+                  </form>
+                </div>
+              {% endfor %}
+              {% if post.comment_count > 3 %}
+                <a href="{% url 'posts:detail' post.id %}" class="view-more-comments">View all comments</a>
+              {% endif %}
+            </div>
+          {% endif %}
         </article>
 
       {% empty %}

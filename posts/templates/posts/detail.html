@@ -7,37 +7,71 @@
 </head>
 <body>
 
-<main>
-  <article aria-labelledby="post-title">
-    <header>
-      <h1 id="post-title">{{ post.title }}</h1>
+<main class="page">
+  <section class="feed" style="max-width:900px;width:100%;">
+    <article class="post-card post-detail">
+      <h1>{{ post.title }}</h1>
 
-      <dl>
-        <dt><strong>Author:</strong></dt>
-        <dd>{{ post.author.username }}</dd>
+      <p><strong>Author:</strong> {{ post.author.username }}</p>
+      <p><strong>Created:</strong> {{ post.created }}</p>
+      <p><strong>Visibility:</strong> {{ post.visibility }}</p>
 
-        <dt><strong>Created:</strong></dt>
-        <dd>
-          <time datetime="{{ post.created|date:'c' }}">{{ post.created }}</time>
-        </dd>
-
-        <dt><strong>Visibility:</strong></dt>
-        <dd>{{ post.visibility }}</dd>
-      </dl>
-    </header>
-
-    <section aria-label="Post content">
       {% if rendered %}
-        {{ rendered|safe }}
+        <div>{{ rendered|safe }}</div>
       {% else %}
         <p>{{ post.content }}</p>
       {% endif %}
-    </section>
 
-    <footer>
+      <!-- Changed section: like/comment controls for this post -->
+      {% if user.is_authenticated %}
+        <div class="post-meta-row">
+          <span>❤️ {{ post.likes.count }} like{{ post.likes.count|pluralize }}</span>
+          <span>💬 {{ post.comments.count }} comment{{ post.comments.count|pluralize }}</span>
+        </div>
+
+        <div class="post-interactions">
+          <form method="post" action="{% url 'posts:like-post' post.id %}" class="inline-form">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'posts:detail' post.id %}">
+            <button type="submit" class="pill">{% if post_liked_by_me %}❤️ Liked{% else %}🤍 Like{% endif %}</button>
+          </form>
+
+          <form method="post" action="{% url 'posts:add-comment' post.id %}" class="inline-form comment-inline-form">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'posts:detail' post.id %}">
+            <input type="text" name="comment" placeholder="Write a comment..." class="comment-input" maxlength="1000" required>
+            <button type="submit" class="pill">Comment</button>
+          </form>
+        </div>
+      {% endif %}
+
+      <hr>
+      <h3>Comments</h3>
+      <!-- Changed section: full comments list + per-comment like action -->
+      {% for comment in comments %}
+        <div class="comment-item">
+          <div class="comment-text">
+            <strong>{{ comment.author.username }}</strong> · {{ comment.published }}<br>
+            {{ comment.comment }}
+          </div>
+          {% if user.is_authenticated %}
+            <form method="post" action="{% url 'posts:like-comment' post.id comment.id %}" class="inline-form">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{% url 'posts:detail' post.id %}">
+              <button type="submit" class="comment-like-btn">
+                {% if comment.liked_by_me %}❤️{% else %}🤍{% endif %} {{ comment.like_count }}
+              </button>
+            </form>
+          {% endif %}
+        </div>
+      {% empty %}
+        <p>No comments yet.</p>
+      {% endfor %}
+
       <a href="{% url 'posts:stream' %}">Back to Stream</a>
-    </footer>
-  </article>
+    </article>
+  </section>
 </main>
+
 </body>
 </html>
