@@ -1,82 +1,151 @@
-{% extends 'authors/base.html' %}
-{% block content %}
+{% extends 'authors/base.html' %} {% block content %}
 
 <main class="page">
-  <div class="layout" style="grid-template-columns: 1fr;">
+    <article class="layout" style="grid-template-columns: 1fr">
+        <section class="feed">
+            <h1 class="feed-title">Profile</h1>
 
-    <section class="feed">
-      <h1 class="feed-title">Profile</h1>
+            <header
+                class="post-card"
+                style="text-align: center; position: relative"
+            >
+                {% if profile_user.profileImage %}
+                <img
+                    src="{{ profile_user.profileImage }}"
+                    alt="Avatar"
+                    style="
+                        width: 100px;
+                        height: 100px;
+                        border-radius: 50%;
+                        object-fit: cover;
+                        margin-bottom: 15px;
+                    "
+                />
+                {% else %}
+                <figure
+                    class="avatar"
+                    style="
+                        width: 100px;
+                        height: 100px;
+                        margin: 0 auto 15px auto;
+                    "
+                ></figure>
+                {% endif %}
 
-      <div class="post-card" style="text-align:center;">
-        {% if profile_user.profileImage %}
-          <img
-            src="{{ profile_user.profileImage }}"
-            alt="Avatar"
-            style="width:100px;height:100px;border-radius:50%;object-fit:cover;margin-bottom:15px;"
-          />
-        {% else %}
-          <div
-            class="avatar"
-            style="width:100px;height:100px;margin:0 auto 15px auto;"
-          ></div>
-        {% endif %}
+                <h2 style="margin: 0">
+                    {{ profile_user.displayName|default:profile_user.username }}
+                </h2>
 
-        <h2 style="margin:0;">
-          {{ profile_user.displayName|default:profile_user.username }}
-        </h2>
+                <p style="color: var(--muted); margin: 6px 0 14px">
+                    @{{ profile_user.username }}
+                </p>
 
-        <p style="color: var(--muted); margin: 6px 0 14px;">
-          @{{ profile_user.username }}
-        </p>
+                {% if profile_user.github %}
+                <p style="margin: 0 0 14px">
+                    <a
+                        href="{{ profile_user.github }}"
+                        target="_blank"
+                        class="pill"
+                    >
+                        🔗 View GitHub
+                    </a>
+                </p>
+                {% endif %} {% if profile_user.bio %}
+                <p
+                    style="
+                        margin: 0 auto;
+                        padding: 12px 14px;
+                        background: #f1f5f9;
+                        border-radius: 16px;
+                        text-align: center;
+                        line-height: 1.6;
+                        width: 60%;
+                    "
+                >
+                    {{ profile_user.bio }}
+                </p>
+                {% endif %} {% if request.user == profile_user %}
+                <menu
+                    class="form-actions"
+                    style="
+                        position: absolute;
+                        top: 16px;
+                        right: 16px;
+                        margin: 0;
+                        padding: 0;
+                    "
+                >
+                    <a
+                        href="{% url 'edit-profile' %}"
+                        class="pill"
+                        aria-label="Edit Profile"
+                        title="Edit Profile"
+                        style="text-decoration: none; font-size: 1.2rem"
+                    >
+                        ✏️
+                    </a>
+                </menu>
+                {% elif request.user.is_authenticated %}
+                <menu
+                    class="form-actions"
+                    style="
+                        justify-content: center;
+                        margin-top: 12px;
+                        padding: 0;
+                    "
+                >
+                    <a
+                        href="{% url 'send-follow-request' profile_user.id %}"
+                        class="pill"
+                    >
+                        Follow
+                    </a>
+                    <a
+                        href="{% url 'unfollow' profile_user.id %}"
+                        class="pill danger"
+                    >
+                        Unfollow
+                    </a>
+                </menu>
+                {% endif %}
+            </header>
 
-        {% if profile_user.github %}
-          <p style="margin:0 0 14px;">
-            <a href="{{ profile_user.github }}" target="_blank" class="pill">
-              🔗 View GitHub
-            </a>
-          </p>
-        {% endif %}
-
-        {% if profile_user.bio %}
-          <p style="margin:0; padding:12px 14px; background:#f1f5f9; border-radius:16px; text-align:left; line-height:1.6;">
-            {{ profile_user.bio }}
-          </p>
-        {% endif %}
-
-        {% if request.user == profile_user %}
-          <div class="form-actions" style="justify-content:center; margin-top:12px;">
-            <a href="{% url 'edit-profile' %}" class="pill">Edit Profile</a>
-          </div>
-        {% elif request.user.is_authenticated %}
-          <div class="form-actions" style="justify-content:center; margin-top:12px;">
-            <a href="{% url 'send-follow-request' profile_user.id %}" class="pill">
-              Follow
-            </a>
-            <a href="{% url 'unfollow' profile_user.id %}" class="pill danger">
-              Unfollow
-            </a>
-          </div>
-        {% endif %}
-      </div>
-
-      {% if github_events %}
-        <div class="post-card">
-          <h3 style="margin:0 0 12px; font-weight:900;">Recent GitHub Activity</h3>
-          <ul style="padding-left:20px; color: var(--muted); font-size: 14px; margin:0;">
-            {% for event in github_events %}
-              <li style="margin-bottom:8px;">
-                <strong style="color: var(--text);">{{ event.type }}</strong>
-                on
-                <a href="https://github.com/{{ event.repo.name }}" style="color: var(--text); font-weight:800; text-decoration:none;">
-                  {{ event.repo.name }}
-                </a>
-              </li>
-            {% endfor %}
-          </ul>
-        </div>
-      {% endif %}
-    </section>
-  </div>
+            {% if github_events %}
+            <aside class="post-card">
+                <h3 style="margin: 0 0 12px; font-weight: 900">
+                    Recent GitHub Activity
+                </h3>
+                <ul
+                    style="
+                        padding-left: 20px;
+                        color: var(--muted);
+                        font-size: 14px;
+                        margin: 0;
+                    "
+                >
+                    {% for event in github_events %}
+                    <li style="margin-bottom: 8px">
+                        <strong style="color: var(--text)"
+                            >{{ event.type }}</strong
+                        >
+                        on
+                        <a
+                            href="https://github.com/{{ event.repo.name }}"
+                            style="
+                                color: var(--text);
+                                font-weight: 800;
+                                text-decoration: none;
+                            "
+                        >
+                            {{ event.repo.name }}
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </aside>
+            {% endif %}
+        </section>
+    </article>
 </main>
 
 {% endblock %}
