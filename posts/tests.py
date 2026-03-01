@@ -436,3 +436,99 @@ class PostsViewTests(TestCase):
         self.post_plain.refresh_from_db()
         self.assertTrue(not self.post_plain.deleted)
         print("Test Passed: The post that non-author tried deleting remains undeleted")
+	
+
+'''
+These tests below refers to user stories : Visibiltiy
+Citation:
+    This test class was developed with guidance from ChatGPT (OpenAI).
+    Final implementation and testing were completed by the developer.
+
+'''
+class PostVisibilityTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.author = Author.objects.create_user(
+            username="author",
+            password="pass123"
+        )
+
+        cls.friend = Author.objects.create_user(
+            username="friend",
+            password="pass123"
+        )
+
+        cls.follower = Author.objects.create_user(
+            username="follower",
+            password="pass123"
+        )
+
+        cls.stranger = Author.objects.create_user(
+            username="stranger",
+            password="pass123"
+        )
+
+        # Create relationships
+        # Friend = mutual follow
+        Follower.objects.create(follower=cls.friend, following=cls.author, status="accepted")
+        Follower.objects.create(follower=cls.author, following=cls.friend, status="accepted")
+
+        # Follower = only one-way
+        Follower.objects.create(follower=cls.follower, following=cls.author, status="accepted")
+
+        # Create posts
+        cls.public_post = Post.objects.create(
+            author=cls.author,
+            content="public post",
+            visibility=Post.Visibility.PUBLIC,
+        )
+
+        cls.unlisted_post = Post.objects.create(
+            author=cls.author,
+            content="unlisted post",
+            visibility=Post.Visibility.UNLISTED,
+        )
+
+        cls.friends_post = Post.objects.create(
+            author=cls.author,
+            content="friends post",
+            visibility=Post.Visibility.FRIENDS,
+        )
+
+    #Public Post Test  visible to everyone	
+    def test_public_post_visible_to_everyone(self):
+        for user in [self.friend, self.follower, self.stranger]:
+            self.client.force_login(user)
+            res = self.client.get(reverse("posts:detail", args=[self.public_post.id]))
+            self.assertEqual(res.status_code, 200)
+    
+    #Unlisted Posts visible to followers + link
+    def test_unlisted_visible_to_follower(self):
+        self.client.force_login(self.follower)
+        res = self.client.get(reverse("posts:detail", args=[self.unlisted_post.id]))
+        self.assertEqual(res.status_code, 200)
+    
+    #Unlisted Post Not visible in Public stream
+    def test_unlisted_not_in_public_stream(self):
+        self.client.force_login(self.stranger)
+        res = self.client.get(reverse("posts:stream"))
+        self.assertNotContains(res, "unlisted post")
+    
+    #Friends-only visible only to friends
+    def test_friends_post_visible_to_friend(self):
+        self.client.force_login(self.friend)
+        res = self.client.get(reverse("posts:detail", args=[self.friends_post.id]))
+        self.assertEqual(res.status_code, 200)
+    
+    #Friends-only NOT visible to follower
+    def test_friends_post_not_visible_to_follower(self):
+        self.client.force_login(self.follower)
+        res = self.client.get(reverse("posts:detail", args=[self.friends_post.id]))
+        self.assertEqual(res.status_code, 403)  #Access denied
+
+    #Author always sees own posts
+    def test_author_always_sees_own_posts(self):
+        self.client.force_login(self.author)
+        for post in [self.public_post, self.unlisted_post, self.friends_post]:
+            res = self.client.get(reverse("posts:detail", args=[post.id]))
+            self.assertEqual(res.status_code, 200)
