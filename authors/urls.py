@@ -1,5 +1,6 @@
 from django.urls import path
 
+from . import api_views
 from . import views
 
 '''
@@ -29,4 +30,11 @@ urlpatterns = [
     path("friends-list/", views.friends_list, name="friends-list"),
     path("inbox/", views.inbox, name="inbox"),
     path("search/", views.author_search, name="author-search"),
+    #API endpoints
+    path("api/authors/<uuid:pk>/follow/", api_views.api_follow_author),
+    path("api/authors/<uuid:pk>/accept/", api_views.api_accept_follow),
+    path("api/authors/<uuid:pk>/reject/", api_views.api_reject_follow),
+    path("api/authors/<uuid:pk>/following/", api_views.api_get_following),
+    path("api/authors/<uuid:pk>/unfollow/", api_views.api_unfollow),
+    path("api/authors/<uuid:pk>/friends/", api_views.api_get_friends),
 ]
