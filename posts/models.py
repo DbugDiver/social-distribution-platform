@@ -3,6 +3,13 @@ from django.conf import settings
 from django.db import models
 
 """
+Change citation (local project work):
+- Added Comment and Like models for CMPUT 404 Part 1 comments/likes stories.
+- Added Like constraints for one-target-only and duplicate-like prevention.
+- Updated CheckConstraint to Django 6 style using `condition=`.
+"""
+
+"""
 This is the Post model which represents a post created by a user.
 It has fields for the author, title, content type, content, image attachment, visibility, deleted status, created time and updated time.
 The content type can be either plain text or markdown.
@@ -45,3 +52,83 @@ class Post(models.Model):
 
     def __str__(self):
         return f"{self.title or '(no title)'} [{self.id}]"
+
+
+class Comment(models.Model):
+    # Changed section: local comment model used by both web UI and API endpoints.
+    class ContentType(models.TextChoices):
+        PLAIN = "text/plain", "Plain text"
+        MARKDOWN = "text/markdown", "Markdown"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="comments")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="comments",
+    )
+    comment = models.TextField()
+    content_type = models.CharField(
+        max_length=50,
+        choices=ContentType.choices,
+        default=ContentType.PLAIN,
+    )
+    published = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-published"]
+
+    def __str__(self):
+        return f"Comment {self.id} on {self.post_id}"
+
+
+class Like(models.Model):
+    # Changed section: local like model (supports liking either a post or a comment).
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="likes",
+    )
+    post = models.ForeignKey(
+        Post,
+        on_delete=models.CASCADE,
+        related_name="likes",
+        null=True,
+        blank=True,
+    )
+    comment = models.ForeignKey(
+        Comment,
+        on_delete=models.CASCADE,
+        related_name="likes",
+        null=True,
+        blank=True,
+    )
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(post__isnull=False) & models.Q(comment__isnull=True))
+                    | (models.Q(post__isnull=True) & models.Q(comment__isnull=False))
+                ),
+                name="like_exactly_one_target",
+            ),
+            models.UniqueConstraint(
+                fields=["author", "post"],
+                condition=models.Q(post__isnull=False),
+                name="unique_author_post_like",
+            ),
+            models.UniqueConstraint(
+                fields=["author", "comment"],
+                condition=models.Q(comment__isnull=False),
+                name="unique_author_comment_like",
+            ),
+        ]
+        ordering = ["-created"]
+
+    def __str__(self):
+        target = self.post_id or self.comment_id
+        return f"Like {self.id} by {self.author_id} on {target}"
