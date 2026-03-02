@@ -25,20 +25,20 @@ __uofa-cmput404-team-honeydew__
 > Names may be aliases.
   
 ## Run the following commands to run the web app:
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pip install django
-python manage.py makemigrations
-python manage.py migrate
-python manage.py createsuperuser -> create username and password. This will be required to login
-python manage.py runserver
+- python3 -m venv .venv
+- source .venv/bin/activate
+- pip install -r requirements.txt
+- pip install django
+- python manage.py makemigrations
+- python manage.py migrate
+- python manage.py createsuperuser -> create username and password. This will be required to login
+- python manage.py runserver
 
 ## Run the following commands to run the tests:
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python manage.py test
+- python3 -m venv .venv
+- source .venv/bin/activate
+- pip install -r requirements.txt
+- python manage.py test
 
 ## License
 This project is licensed under the **MIT License**.  
