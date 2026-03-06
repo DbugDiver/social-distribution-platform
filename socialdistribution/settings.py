@@ -29,6 +29,8 @@ LOGIN_REDIRECT_URL = "posts:stream"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 INSTALLED_APPS = [
+    "cloudinary_storage",
+    "cloudinary",
     "posts",
     "authors",
     "node",
@@ -39,6 +41,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "storages",
 ]
 
 MIDDLEWARE = [
@@ -106,9 +109,15 @@ STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
 
+CLOUDINARY_STORAGE = {
+    "CLOUD_NAME": os.environ.get("CLOUDINARY_CLOUD_NAME"),
+    "API_KEY": os.environ.get("CLOUDINARY_API_KEY"),
+    "API_SECRET": os.environ.get("CLOUDINARY_API_SECRET"),
+}
+
 STORAGES = {
     "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
     },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
