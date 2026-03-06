@@ -19,6 +19,8 @@ urlpatterns = [
 # changes made to merge backend and social distribution
 urlpatterns = [
     path("", views.home_feed, name="home-feed"),
+    path("login/", views.custom_login, name="login"),
+    path("signup/", views.signup_author, name = "signup-author"),
     path("<uuid:pk>/", views.author_profile, name="author-profile"),
     path("profile/edit/", views.edit_profile, name="edit-profile"),
     path("<uuid:pk>/follow/", views.send_a_follow_request, name="send-follow-request"),

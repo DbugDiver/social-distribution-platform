@@ -1,0 +1,25 @@
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <title>Welcome</title>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+</head>
+
+<body class="node-admin-page">
+
+<div class="container">
+    <h1 style="text-align:center;">Node Admin Panel</h1>
+    <a href="{% url 'approvals' %}">
+        Approve Users
+    </a>
+</div>
+
+<nav class="admin-back-container">
+      <a href="{% url 'posts:stream' %}" class="nav-link admin-back-stream">
+          ← Back to Stream
+      </a>
+</nav>
+
+</body>
+</html>

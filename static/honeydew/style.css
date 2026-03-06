@@ -107,7 +107,6 @@ body{
   box-shadow: var(--shadow);
   transition: 0.2s ease;
 }
-
 .post-card:hover{
   transform: translateY(-4px);
   box-shadow: var(--shadow2);
@@ -178,13 +177,21 @@ body{
   margin-top: 10px;
 }
 
+/*
 .post-image{
   width: 100%;
   border-radius: 20px;
   object-fit: cover;
   max-height: 520px;
 }
-
+*/
+.post-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  display: block;
+  margin-top: 10px;
+}
 /* ===== Sidebar ===== */
 .sidebar{
   position: sticky;
@@ -655,4 +662,15 @@ body{
   font-weight:700;
   text-decoration:none;
   color:#0ea5e9;
+}
+.node-admin-page .admin-back-container {
+    position: fixed;
+    bottom: 140px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.node-admin-page .admin-back-stream {
+    font-size: 24px;
+    padding: 16px 28px;
 }

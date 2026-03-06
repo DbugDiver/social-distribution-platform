@@ -19,6 +19,7 @@ urlpatterns = [
 
     path("", include("posts.urls")),           # homepage = posts stream
     path("authors/", include("authors.urls")),
+    path("node/", include("node.urls")),
 ]
 
 

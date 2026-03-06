@@ -11,6 +11,7 @@
   <section class="header-inner">
     <p class="brand">SocialDistribution</p>
     <nav class="header-nav" aria-label="Primary navigation">
+      
       <a href="{% url 'inbox' %}" class="nav-link">Inbox</a>
 
       <form method="GET" action="{% url 'author-search' %}" class="search-form" role="search">
@@ -25,6 +26,9 @@
         <!-- Only show option to create a post to logged-in/authenticated users -->
         <a href="{% url 'posts:create' %}" class="nav-link">+ New Post</a>
 
+        {% if user.is_superuser %}
+          <a href="{% url 'node-admin-dashboard' %}" class="nav-link">Admin</a>
+        {% endif %}
         <!-- Profile icon button (top-right) -->
         <a href="{% url 'author-profile' pk=request.user.pk %}"
           class="icon-btn profile-btn"
@@ -84,35 +88,44 @@
             </h3>
           {% endif %}
 
-          {% if post.has_image %}
-            <figure class="post-image-wrapper">
-              <img src="{{ post.image.url }}" class="post-image" alt="post image">
-            </figure>
-          {% endif %}
 
           {% if post.content %}
             <section class="post-text-wrapper">
 
               {% if post.content_type == "text/markdown" %}
                 <section class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
-                         id="content-{{ post.id }}">
+                        id="content-{{ post.id }}">
                   {{ post.rendered|safe }}
-                </section>
-              {% else %}
-                <p class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
-                   id="content-{{ post.id }}">
-                  {{ post.content }}
-                </p>
-              {% endif %}
 
-              {% if post.content|wordcount > 20 %}
-                <button class="read-more-btn" type="button"
-                        onclick="toggleContent('{{ post.id }}', this)">
-                  Read more
-                </button>
-              {% endif %}
-            </section>
+                  {% if post.image %}
+                    <div class="post-image-wrapper">
+                    <img src="{{ post.image.url }}">
+                    </div>
+                  {% endif %}
+
+                </section>
+          {% else %}
+            <p class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
+                id="content-{{ post.id }}">
+                {{ post.content }}
+            </p>
+
+            {% if post.image %}
+              <div class="post-image-wrapper">
+              <img src="{{ post.image.url }}">
+              </div>
+            {% endif %}
           {% endif %}
+
+          {% if post.content|wordcount > 20 %}
+            <button class="read-more-btn" type="button"
+                    onclick="toggleContent('{{ post.id }}', this)">
+              Read more
+            </button>
+          {% endif %}
+
+          </section>
+      {% endif %}
 
           <!-- Changed section: comments/likes summary + interaction controls -->
           <div class="post-meta-row">
@@ -157,7 +170,7 @@
           {% endif %}
         </article>
 
-      {% empty %}
+        {% empty %}
         {% if user.is_authenticated %}
           <p class="empty">There are no posts to show.</p>
         {% else %}

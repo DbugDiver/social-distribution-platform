@@ -1,19 +1,20 @@
 from socket import timeout
-
+from django.contrib.auth.forms import AuthenticationForm
 import requests
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
-
+from django.contrib.auth import authenticate, login
 from .forms import AuthorUpdateForm
 from .models import Author, Follower, Notification
 from posts.models import Post
 from django.db.models import Q
 
+@login_required
 def home_feed(request):
     """Main Page"""
-    return render(request, "posts/stream.html")
+    return redirect("author-profile", pk=request.user.id)
 
-
+@login_required
 def author_profile(request, pk):
     """Authors Page with github activity"""
     author = get_object_or_404(Author, pk=pk)
@@ -45,6 +46,44 @@ def author_profile(request, pk):
     return render(request, "authors/profile.html", context)
 
 
+def custom_login(request):
+    form = AuthenticationForm()
+    if request.method == "POST":
+        username = request.POST.get("username")
+        password = request.POST.get("password")
+        user = authenticate(request, username=username, password=password)
+        form = AuthenticationForm(initial={"username": username})
+        if user is not None:
+            if not user.is_approved:
+                return render(request, "registration/login.html", {
+                    "show_pending": True,
+                    "form": form
+                })
+            login(request, user)
+            return redirect("home-feed")
+
+        return render(request, "registration/login.html", {"show_invalid": True, "form":form})
+    return render(request, "registration/login.html", {"form":form})
+def signup_author(request):
+    if request.method == "POST":
+        username = request.POST.get("username")
+        password = request.POST.get("password")
+
+        all_authors = Author.objects.values_list("username", flat=True)
+        form = AuthenticationForm(initial={"username": username})
+        if username in all_authors:
+            return render(request, "registration/login.html", {
+                    "show_message": True,
+                    "form": form
+            })
+
+        Author.objects.create_user(
+                username=username,
+                password=password,
+                is_approved = False
+            )
+
+        return render(request,  "registration/login.html" , {"show_signup":True , "form":form})
 @login_required
 def edit_profile(request):
     """Edit Profile Logic"""

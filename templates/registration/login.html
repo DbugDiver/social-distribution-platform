@@ -1,17 +1,60 @@
+{% load static %}
 <!doctype html>
 <html>
 <head>
-  <title>Login</title>
+  <title>Welcome</title>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
 </head>
 <body>
 
-<h2>Login</h2>
+<main class="page">
+  <section class="feed" style="max-width:400px;width:100%;">
+    <article class="post-card">
 
-<form method="post">
-  {% csrf_token %}
-  {{ form.as_p }}
-  <button type="submit">Login</button>
-</form>
+      <h2 style="margin-bottom:15px;">Welcome to SocialDistribution</h2>
+
+      <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit"
+                formaction="{% url 'login' %}"
+                class="pill" style="width:100%;margin-top:10px;">
+          Login
+        </button>
+        <button type="submit"
+                formaction="{% url 'signup-author' %}"
+                class="pill" style="width:100%;margin-top:10px;">
+          Sign Up
+        </button>
+      </form>
+
+      <hr style="margin:20px 0;">
+      {% if show_message %}
+      <p style="color:red;">
+        Username already exists
+      </p>
+      {% endif %}
+
+      {% if show_pending %}
+      <p style="color:rebeccapurple;">
+        Pending admin approval!
+      </p>
+      {% endif %}
+
+      {% if show_signup %}
+      <p style="color:rebeccapurple;">
+        Account Created! Admin approval required.
+      </p>
+      {% endif %}
+
+      {% if show_invalid %}
+      <p style="color:rebeccapurple;">
+        Username or Password is incorrect
+      </p>
+      {% endif %}
+    </article>
+  </section>
+</main>
 
 </body>
 </html>

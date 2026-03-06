@@ -21,6 +21,11 @@
       {% else %}
         <p>{{ post.content }}</p>
       {% endif %}
+      {% if post.image %}
+        <div style="margin-top:15px;">
+        <img src="{{ post.image.url }}" style="max-width:100%; border-radius:8px;">
+        </div>
+      {% endif %}
 
       <!-- Changed section: like/comment controls for this post -->
       {% if user.is_authenticated %}

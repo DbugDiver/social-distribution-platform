@@ -8,7 +8,7 @@ from django.db import models
 class Author(AbstractUser):
     # Override the default ID with a UUID
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
+    is_approved = models.BooleanField(default=False)
     # Required by spec
     host = models.URLField(max_length=255, blank=True)
     displayName = models.CharField(max_length=255, blank=True)
