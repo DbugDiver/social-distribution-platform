@@ -88,7 +88,12 @@
             </h3>
           {% endif %}
 
-
+          {% if post.image %}
+            <div class="post-image-wrapper" style="width:100%; overflow:hidden; border-radius:16px;">
+              <img src="{{ post.image.url }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;">
+            </div>
+          {% endif %} 
+          
           {% if post.content %}
             <section class="post-text-wrapper">
 
@@ -96,25 +101,12 @@
                 <section class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
                         id="content-{{ post.id }}">
                   {{ post.rendered|safe }}
-
-                  {% if post.image %}
-                    <div class="post-image-wrapper">
-                    <img src="{{ post.image.url }}">
-                    </div>
-                  {% endif %}
-
                 </section>
           {% else %}
             <p class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
                 id="content-{{ post.id }}">
                 {{ post.content }}
             </p>
-
-            {% if post.image %}
-              <div class="post-image-wrapper">
-              <img src="{{ post.image.url }}">
-              </div>
-            {% endif %}
           {% endif %}
 
           {% if post.content|wordcount > 20 %}
