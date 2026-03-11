@@ -1,149 +1,201 @@
 {% extends 'authors/base.html' %} {% block content %}
 
+<style>
+    .profile-layout {
+        display: grid;
+        grid-template-columns: 2fr 1fr; /* 2fr (two thirds) and 1fr (one third) */
+        gap: 32px;
+        align-items: start;
+    }
+
+    /* If the screen is smaller than a laptop, stack them vertically */
+    @media (max-width: 900px) {
+        .profile-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
 <main class="page">
-    <article class="layout" style="grid-template-columns: 1fr">
-        <section class="feed">
-            <h1 class="feed-title">Profile</h1>
+    <article class="layout profile-layout">
+        <section
+            class="feed"
+            style="display: flex; flex-direction: column; gap: 16px"
+        >
+            <h1 class="feed-title" style="margin: 0">Profile</h1>
 
-            <header
-                class="post-card"
-                style="text-align: center; position: relative"
-            >
-                {% if profile_user.profileImage %}
-                <img
-                    src="{{ profile_user.profileImage }}"
-                    alt="Avatar"
+            <header class="post-card" style="text-align: center; position: relative;">
+
+                            {% if request.user == profile_user %}
+                            <a class="icon-btn" href="{% url 'edit-profile' %}" style="position: absolute; top: 16px; right: 16px; padding: 6px 6px; color: #fff; background-color: ; text-decoration: none; border-radius: 20px; font-weight: bold; font-size: 1.2rem;">
+                                ✏️
+                            </a>
+                            {% endif %}
+
+                            {% if profile_user.profileImage %}
+                            <img src="{{ profile_user.profileImage }}" alt="Avatar" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; margin-bottom: 15px;" />
+                            {% else %}
+                            <figure class="avatar" style="width: 100px; height: 100px; margin: 0 auto 15px auto;"></figure>
+                            {% endif %}
+
+                            <h2 style="margin: 0">{{ profile_user.displayName|default:profile_user.username }}</h2>
+                            <p style="color: var(--muted); margin: 6px 0 14px">@{{ profile_user.username }}</p>
+
+                            {% if profile_user.github %}
+                            <p style="margin: 0 0 14px">
+                                <a href="{{ profile_user.github }}" target="_blank" class="pill">🔗 View GitHub</a>
+                            </p>
+                            {% endif %}
+
+                            {% if profile_user.bio %}
+                            <p style="margin: 0 auto; padding: 12px 14px; background: #f1f5f9; border-radius: 16px; text-align: center; line-height: 1.6; width: 80%;">
+                                {{ profile_user.bio }}
+                            </p>
+                            {% endif %}
+                        </header>
+
+            <h3 class="feed-title" style="margin-top: 16px; margin-bottom: 0">
+                Recent Posts
+            </h3>
+
+            {% for post in posts %}
+            <article class="post-card">
+                <header
                     style="
-                        width: 100px;
-                        height: 100px;
-                        border-radius: 50%;
-                        object-fit: cover;
-                        margin-bottom: 15px;
-                    "
-                />
-                {% else %}
-                <figure
-                    class="avatar"
-                    style="
-                        width: 100px;
-                        height: 100px;
-                        margin: 0 auto 15px auto;
-                    "
-                ></figure>
-                {% endif %}
-
-                <h2 style="margin: 0">
-                    {{ profile_user.displayName|default:profile_user.username }}
-                </h2>
-
-                <p style="color: var(--muted); margin: 6px 0 14px">
-                    @{{ profile_user.username }}
-                </p>
-
-                {% if profile_user.github %}
-                <p style="margin: 0 0 14px">
-                    <a
-                        href="{{ profile_user.github }}"
-                        target="_blank"
-                        class="pill"
-                    >
-                        🔗 View GitHub
-                    </a>
-                </p>
-                {% endif %} {% if profile_user.bio %}
-                <p
-                    style="
-                        margin: 0 auto;
-                        padding: 12px 14px;
-                        background: #f1f5f9;
-                        border-radius: 16px;
-                        text-align: center;
-                        line-height: 1.6;
-                        width: 60%;
+                        margin-bottom: 12px;
+                        border-bottom: 1px solid #eee;
+                        padding-bottom: 12px;
                     "
                 >
-                    {{ profile_user.bio }}
-                </p>
-                {% endif %} {% if request.user == profile_user %}
-                <menu
-                    class="form-actions"
-                    style="
-                        position: absolute;
-                        top: 16px;
-                        right: 16px;
-                        margin: 0;
-                        padding: 0;
-                    "
-                >
-                    <a
-                        href="{% url 'edit-profile' %}"
-                        class="pill"
-                        aria-label="Edit Profile"
-                        title="Edit Profile"
-                        style="text-decoration: none; font-size: 1.2rem"
-                    >
-                        ✏️
-                    </a>
-                </menu>
-                {% elif request.user.is_authenticated %}
-                <menu
-                    class="form-actions"
-                    style="
-                        justify-content: center;
-                        margin-top: 12px;
-                        padding: 0;
-                    "
-                >
-                    <a
-                        href="{% url 'send-follow-request' profile_user.id %}"
-                        class="pill"
-                    >
-                        Follow
-                    </a>
-                    <a
-                        href="{% url 'unfollow' profile_user.id %}"
-                        class="pill danger"
-                    >
-                        Unfollow
-                    </a>
-                </menu>
-                {% endif %}
-            </header>
-
-            {% if github_events %}
-            <aside class="post-card">
-                <h3 style="margin: 0 0 12px; font-weight: 900">
-                    Recent GitHub Activity
-                </h3>
-                <ul
-                    style="
-                        padding-left: 20px;
-                        color: var(--muted);
-                        font-size: 14px;
-                        margin: 0;
-                    "
-                >
-                    {% for event in github_events %}
-                    <li style="margin-bottom: 8px">
-                        <strong style="color: var(--text)"
-                            >{{ event.type }}</strong
-                        >
-                        on
+                    <h3 style="margin: 0 0 4px 0">
                         <a
-                            href="https://github.com/{{ event.repo.name }}"
+                            href="{% url 'posts:detail' post.id %}"
+                            style="text-decoration: none; color: var(--text)"
+                            >{{ post.title }}</a
+                        >
+                    </h3>
+                    <small style="color: var(--muted)">
+                        {{ post.created|date:"F j, Y, g:i a" }} • Visibility:
+                        <strong>{{ post.visibility }}</strong>
+                    </small>
+                </header>
+
+                <div class="post-content" style="margin-bottom: 16px">
+                    {% if post.rendered %} {{ post.rendered|safe }} {% else %}
+                    <p style="margin: 0; line-height: 1.5">
+                        {{ post.content }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                <footer
+                    style="
+                        display: flex;
+                        gap: 16px;
+                        font-size: 0.9rem;
+                        color: var(--muted);
+                        border-top: 1px solid #eee;
+                        padding-top: 12px;
+                    "
+                >
+                    <span>
+                        {% if post.liked_by_me %}❤️{% else %}🤍{% endif %} {{ post.likes.count }} Likes
+                    </span>
+                    <span>💬 {{ post.comments.count }} Comments</span>
+                </footer>
+            </article>
+            {% empty %}
+            <div
+                class="post-card"
+                style="text-align: center; color: var(--muted); padding: 32px"
+            >
+                <p style="margin: 0">This author hasn't posted anything yet.</p>
+            </div>
+            {% endfor %}
+        </section>
+
+        <section
+            class="github-feed"
+            style="display: flex; flex-direction: column; gap: 12px"
+        >
+            {% if github_events %}
+            <h3 class="feed-title" style="margin: 0; font-size: 1.2rem">
+                GitHub Activity
+            </h3>
+
+            {% for event in github_events %}
+            <article class="post-card" style="padding: 16px">
+                <header
+                    style="
+                        margin-bottom: 8px;
+                        border-bottom: 1px solid #eee;
+                        padding-bottom: 8px;
+                    "
+                >
+                    <h4 style="margin: 0 0 2px 0; font-size: 0.95rem">
+                        <span style="color: var(--text)"
+                            >GitHub Update - {{ event.icon }}</span
+                        >
+                    </h4>
+                    <small style="color: var(--muted); font-size: 0.75rem">
+                        {{ event.created_at|date:"M j, Y" }} •
+                        <strong>PUBLIC</strong>
+                    </small>
+                </header>
+
+                <div
+                    class="post-content"
+                    style="margin-bottom: 12px; font-size: 0.85rem"
+                >
+                    <p style="margin: 0; line-height: 1.4">
+                        <strong
+                            >{{ profile_user.displayName|default:profile_user.username }}</strong
+                        >
+
+                        {{ event.action_text }}
+                        <a
+                            href="{{ event.repo_url }}"
+                            target="_blank"
                             style="
                                 color: var(--text);
-                                font-weight: 800;
+                                font-weight: 700;
                                 text-decoration: none;
                             "
                         >
-                            {{ event.repo.name }}
+                            {{ event.repo_name }}
                         </a>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </aside>
-            {% endif %}
+
+                        {% if event.extra_info %}
+                        <br />
+                        <span
+                            style="
+                                color: var(--muted);
+                                font-style: italic;
+                                font-size: 0.85em;
+                                display: inline-block;
+                                margin-top: 4px;
+                            "
+                        >
+                            "{{ event.extra_info }}"
+                        </span>
+                        {% endif %}
+                    </p>
+                </div>
+
+                <footer
+                    style="
+                        display: flex;
+                        gap: 12px;
+                        font-size: 0.75rem;
+                        color: var(--muted);
+                        border-top: 1px solid #eee;
+                        padding-top: 8px;
+                    "
+                >
+                    <span>Automated Activity</span>
+                </footer>
+            </article>
+            {% endfor %} {% endif %}
         </section>
     </article>
 </main>
