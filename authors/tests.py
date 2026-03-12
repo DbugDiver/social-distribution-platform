@@ -90,7 +90,21 @@ class AuthorIdentityTests(TestCase):
 
         # 302 means Redirect (Django should redirect them to the login page)
         self.assertEqual(response.status_code, 302)
+    
+    # User Story 59: As a node admin, I don't want arrays stored in database fields,
+    # so relationships should be stored as separate relational rows
+    def test_no_array_fields_in_author_model(self):
+        print("\nChecking Author model fields for array-like storage...")
 
+        from django.db.models import JSONField
+        for field in Author._meta.get_fields():
+            print(f"Field checked: {field.name}")
+            # Ensure no JSON/array style fields exist
+            self.assertFalse(
+                isinstance(field, JSONField),
+                f"Array-like JSONField found: {field.name}"
+            )
+        print("Test Passed: No array-like fields exist in Author model")
 
 class FollowAPITestCase(APITestCase):
     def setUp(self):

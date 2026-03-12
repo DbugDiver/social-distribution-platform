@@ -211,7 +211,6 @@ class CommentsLikesApiTests(TestCase):
 		self.assertEqual(payload["type"], "likes")
 		self.assertEqual(len(payload["src"]), 2)
 
-
 """
     Rosy: Can you help me write a rest api test for this copied and pasted @login_required def create(request), and models.py
     ChatGPT: Some of the PostsViewTests(idea taken for initial testing appraoch) and all of setUpTestData function is based on suggestion provided
@@ -259,6 +258,31 @@ class PostsViewTests(TestCase):
     # -------------------------------------------
     # Stream tests
     # -------------------------------------------
+    
+    # User Story 60: As a node admin, I don't want separate frontend and backend web servers,
+    # so both UI pages and API endpoints should be served from the same Django server.
+    def test_frontend_and_api_served_by_same_server(self):
+        self._print_header("test_frontend_and_api_served_by_same_server")
+
+        self.login_as(self.author)
+
+        # Frontend request (HTML page)
+        ui_response = self.client.get(reverse("posts:stream"))
+        self.assertEqual(ui_response.status_code, 200)
+        self.assertIn("text/html", ui_response["Content-Type"])
+        print("Test Passed: Frontend HTML page served")
+
+        # Backend request (API JSON)
+        api_response = self.client.get(reverse("posts:api-stream"))
+        self.assertEqual(api_response.status_code, 200)
+        self.assertIn("application/json", api_response["Content-Type"])
+        print("Test Passed: API JSON served")
+
+        # Ensure both come from same test server
+        self.assertTrue(ui_response.wsgi_request.get_host().startswith("testserver"))
+        self.assertTrue(api_response.wsgi_request.get_host().startswith("testserver"))
+        print("Test Passed: Both frontend and backend served from same server")
+
     def test_login_required_to_see_stream(self):
         self._print_header("test_login_required_to_see_stream")
         res = self.client.get(reverse("posts:stream"))
@@ -276,6 +300,21 @@ class PostsViewTests(TestCase):
         self.assertContains(res, "Public Stream")
         print("Test Passed: Stream page contains 'Public Stream'")
 
+    # User Story 59: As a node admin, I don't want arrays stored in database fields,
+    # so relationships should be stored as separate relational rows
+    def test_no_array_fields_in_post_model(self):
+        print("\nChecking Post model fields for array-like storage...")
+
+        from django.db.models import JSONField
+        for field in Post._meta.get_fields():
+            print(f"Field checked: {field.name}")
+            # Ensure no JSON/array style fields exist
+            self.assertFalse(
+                isinstance(field, JSONField),
+                f"Array-like JSONField found: {field.name}"
+            )
+        print("Test Passed: No array-like fields exist in Post model")
+        
     # -------------------------------------------
     # Create tests
     # -------------------------------------------
@@ -436,7 +475,32 @@ class PostsViewTests(TestCase):
         self.post_plain.refresh_from_db()
         self.assertTrue(not self.post_plain.deleted)
         print("Test Passed: The post that non-author tried deleting remains undeleted")
-	
+        
+    # User Story 61: As a node admin, I want deleted entries to stay in the database
+    # and only be removed from the UI and API, so I can see what was deleted.
+    def test_deleted_post_remains_in_database_but_hidden(self):
+        self._print_header("test_deleted_post_remains_in_database_but_hidden")
+
+        self.login_as(self.author)
+
+        # Delete the post
+        res = self.client.post(reverse("posts:delete", args=[self.post_plain.id]))
+        self.assertEqual(res.status_code, 302)
+
+        # Ensure the row still exists in DB
+        exists_in_db = Post.objects.filter(id=self.post_plain.id).exists()
+        self.assertTrue(exists_in_db)
+        print("Test Passed: Deleted post still exists in the database")
+
+        # Ensure it is marked deleted
+        post = Post.objects.get(id=self.post_plain.id)
+        self.assertTrue(post.deleted)
+        print("Test Passed: Post is marked as deleted")
+
+        # Ensure it does not appear in the stream UI
+        res = self.client.get(reverse("posts:stream"))
+        self.assertNotContains(res, "plain text")
+        print("Test Passed: Deleted post does not appear in the stream UI")
 
 '''
 These tests below refers to user stories : Visibiltiy

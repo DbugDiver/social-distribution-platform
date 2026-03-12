@@ -36,6 +36,7 @@ class Post(models.Model):
 
     # Optional image attachment for ANY post (plain or markdown)
     image = models.ImageField(upload_to="posts/", blank=True, null=True)
+    
     visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.PUBLIC)
     deleted = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
