@@ -22,6 +22,8 @@ urlpatterns = [
     path("login/", views.custom_login, name="login"),
     path("signup/", views.signup_author, name = "signup-author"),
     path("<uuid:pk>/", views.author_profile, name="author-profile"),
+    # Merge-fix: keep both URL forms so old links and tests continue to work.
+    path("profile/edit/", views.edit_profile, name="edit-profile"),
     path("profile/edit/<uuid:author_id>", views.edit_profile, name="edit-profile"),
     path("<uuid:pk>/follow/", views.send_a_follow_request, name="send-follow-request"),
     path("<uuid:pk>/follow/accept/", views.accept_follow_request, name="accept-follow-request"),
