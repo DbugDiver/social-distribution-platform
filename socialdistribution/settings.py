@@ -6,6 +6,12 @@ import os
 from pathlib import Path
 import dj_database_url
 
+try:
+    import cloudinary_storage  # noqa: F401
+    USE_CLOUDINARY = True
+except ImportError:
+    USE_CLOUDINARY = False
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DEBUG = "True"
@@ -24,8 +30,6 @@ LOGIN_REDIRECT_URL = "posts:stream"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 INSTALLED_APPS = [
-    "cloudinary_storage",
-    "cloudinary",
     "posts",
     "authors",
     "node",
@@ -37,6 +41,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
 ]
+
+if USE_CLOUDINARY:
+    INSTALLED_APPS = ["cloudinary_storage", "cloudinary"] + INSTALLED_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -103,13 +110,16 @@ STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
 
-CLOUDINARY_STORAGE = {
-    "CLOUD_NAME": os.environ.get("CLOUDINARY_CLOUD_NAME"),
-    "API_KEY": os.environ.get("CLOUDINARY_API_KEY"),
-    "API_SECRET": os.environ.get("CLOUDINARY_API_SECRET"),
-}
-
-DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+if USE_CLOUDINARY:
+    CLOUDINARY_STORAGE = {
+        "CLOUD_NAME": os.environ.get("CLOUDINARY_CLOUD_NAME"),
+        "API_KEY": os.environ.get("CLOUDINARY_API_KEY"),
+        "API_SECRET": os.environ.get("CLOUDINARY_API_SECRET"),
+    }
+    DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+else:
+    # Local/dev fallback so tests run even when cloudinary extras are not available.
+    DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "authors.Author"

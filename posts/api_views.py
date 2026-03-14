@@ -67,6 +67,29 @@ def _can_view_post(user, post: Post):
     return _is_friend(user, post.author)
 
 
+def _can_view_post_comments(user, post: Post):
+    # User Story 3: for FRIENDS posts, allow comment authors to see comments even if friendship changed later.
+    if _can_view_post(user, post):
+        return True
+    if not user.is_authenticated:
+        return False
+    if post.visibility != Post.Visibility.FRIENDS:
+        return False
+    return post.comments.filter(author=user).exists()
+
+
+def _visible_comments_queryset(user, post: Post):
+    # User Story 3: friends can see all comments, non-friend commenters see only their own comment(s).
+    base_qs = post.comments.select_related("author")
+    if post.visibility != Post.Visibility.FRIENDS:
+        return base_qs
+    if not user.is_authenticated:
+        return base_qs.none()
+    if user.id == post.author_id or _is_friend(user, post.author):
+        return base_qs
+    return base_qs.filter(author=user)
+
+
 def _pagination_params(request):
     try:
         page = max(1, int(request.GET.get("page", 1)))
@@ -224,7 +247,8 @@ def post_detail_api(request, author_id, post_id):
 @login_required
 def post_comments_api(request, author_id, post_id):
     post = get_object_or_404(Post, id=post_id, author_id=author_id)
-    if not _can_view_post(request.user, post):
+    # User Story 3: comments may be visible to comment authors on FRIENDS posts.
+    if not _can_view_post_comments(request.user, post):
         return JsonResponse({"detail": "Not allowed."}, status=403)
 
     if request.method == "POST":
@@ -254,7 +278,7 @@ def post_comments_api(request, author_id, post_id):
             request=request,
             base_path=base_path,
             collection_type="comments",
-            queryset=post.comments.select_related("author"),
+            queryset=_visible_comments_queryset(request.user, post),
             serializer=_comment_obj,
         )
         return JsonResponse(payload, status=200)
@@ -296,7 +320,16 @@ def post_likes_api(request, author_id, post_id):
 def comment_likes_api(request, author_id, post_id, comment_id):
     post = get_object_or_404(Post, id=post_id, author_id=author_id)
     comment = get_object_or_404(Comment, id=comment_id, post=post)
-    if not _can_view_post(request.user, post):
+    # User Story 3: comment authors can still see/like their own comment thread on FRIENDS posts.
+    if not _can_view_post_comments(request.user, post):
+        return JsonResponse({"detail": "Not allowed."}, status=403)
+    if (
+        post.visibility == Post.Visibility.FRIENDS
+        and request.user.is_authenticated
+        and request.user.id != post.author_id
+        and not _is_friend(request.user, post.author)
+        and comment.author_id != request.user.id
+    ):
         return JsonResponse({"detail": "Not allowed."}, status=403)
 
     if request.method == "POST":

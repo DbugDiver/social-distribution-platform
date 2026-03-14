@@ -33,6 +33,8 @@ urlpatterns = [
     path("inbox/", views.inbox, name="inbox"),
     path("search/", views.author_search, name="author-search"),
     #API endpoints
+    # User Story 2: REST GET author endpoint for alternate clients.
+    path("api/authors/<uuid:pk>/", api_views.api_get_author),
     path("api/authors/<uuid:pk>/follow/", api_views.api_follow_author),
     path("api/authors/<uuid:pk>/accept/", api_views.api_accept_follow),
     path("api/authors/<uuid:pk>/reject/", api_views.api_reject_follow),
