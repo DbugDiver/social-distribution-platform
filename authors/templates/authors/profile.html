@@ -41,7 +41,40 @@
 
                             <h2 style="margin: 0">{{ profile_user.displayName|default:profile_user.username }}</h2>
                             <p style="color: var(--muted); margin: 6px 0 14px">@{{ profile_user.username }}</p>
+                           
+                            {% if request.user != profile_user %}
 
+                            <div style="margin-top:10px;">
+
+                                {% if is_following %}
+                                    
+                                    <p style="color:green; font-weight:600;">
+                                        ✔ You are following {{ profile_user.displayName|default:profile_user.username }}
+                                    </p>
+
+                                    <a href="{% url 'unfollow' profile_user.id %}"
+                                    style="padding:6px 12px; background:#ef4444; color:white; border-radius:8px; text-decoration:none;">
+                                    Unfollow
+                                    </a>
+
+                                {% elif follow_status == "pending" %}
+
+                                    <p style="color:#f59e0b; font-weight:600;">
+                                        Follow request sent
+                                    </p>
+
+                                {% else %}
+
+                                    <a href="{% url 'send-follow-request' profile_user.id %}"
+                                    style="padding:6px 12px; background:#3b82f6; color:white; border-radius:8px; text-decoration:none;">
+                                    Follow
+                                    </a>
+
+                                {% endif %}
+
+                            </div>
+
+                            {% endif %}
                             {% if profile_user.github %}
                             <p style="margin: 0 0 14px">
                                 <a href="{{ profile_user.github }}" target="_blank" class="pill">🔗 View GitHub</a>
