@@ -596,3 +596,149 @@ class PostVisibilityTests(TestCase):
         for post in [self.public_post, self.unlisted_post, self.friends_post]:
             res = self.client.get(reverse("posts:detail", args=[post.id]))
             self.assertEqual(res.status_code, 200)
+
+
+class ProjectPart2StoryTests(TestCase):
+    """
+    Change citation:
+    - Tests added by Copilot to validate only the requested Project 2 user stories.
+    - Includes SQL-level index checks, REST route checks, and visibility/likes behavior checks.
+    """
+
+    def setUp(self):
+        self.author = Author.objects.create_user(
+            username="story_author",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Author",
+        )
+        self.friend = Author.objects.create_user(
+            username="story_friend",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Friend",
+        )
+        self.comment_author = Author.objects.create_user(
+            username="story_comment_author",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Comment Author",
+        )
+        self.receiver = Author.objects.create_user(
+            username="story_receiver",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Receiver",
+        )
+        self.liker = Author.objects.create_user(
+            username="story_liker",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Liker",
+        )
+
+    # User Story 1: relational DB should be well-indexed for common query paths.
+    def test_story1_sqlite_has_expected_indexes_for_core_tables(self):
+        from django.db import connection
+
+        expected_indexes_by_table = {
+            "posts_post": {
+                "post_author_del_created_idx",
+                "post_vis_del_created_idx",
+            },
+            "posts_comment": {
+                "comment_post_pub_idx",
+            },
+            "posts_like": {
+                "like_post_created_idx",
+                "like_comment_created_idx",
+            },
+            "authors_follower": {
+                "follower_status_idx",
+                "following_status_idx",
+            },
+        }
+
+        with connection.cursor() as cursor:
+            for table_name, expected_indexes in expected_indexes_by_table.items():
+                cursor.execute(f"PRAGMA index_list('{table_name}')")
+                rows = cursor.fetchall()
+                index_names = {row[1] for row in rows}
+
+                for idx_name in expected_indexes:
+                    self.assertIn(
+                        idx_name,
+                        index_names,
+                        msg=f"Missing expected index {idx_name} on {table_name}",
+                    )
+
+                    # Extra SQL-level check to confirm each index is physically defined with columns.
+                    cursor.execute(f"PRAGMA index_info('{idx_name}')")
+                    index_cols = cursor.fetchall()
+                    self.assertGreater(
+                        len(index_cols),
+                        0,
+                        msg=f"Index {idx_name} exists but has no indexed columns",
+                    )
+
+    # User Story 2: RESTful interface for core author operations.
+    def test_story2_rest_can_fetch_single_author(self):
+        self.client.force_login(self.receiver)
+        response = self.client.get(f"/authors/api/authors/{self.author.id}/")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["id"], f"http://testserver/authors/{self.author.id}")
+        self.assertEqual(payload["displayName"], "Story Author")
+
+    # User Story 3: friends-only post comments visible to friends and comment author.
+    def test_story3_friends_post_comment_visibility_scoped(self):
+        post = Post.objects.create(
+            author=self.author,
+            title="friends only",
+            content="private",
+            visibility=Post.Visibility.FRIENDS,
+        )
+        # Make exactly one mutual friend.
+        Follower.objects.create(follower=self.friend, following=self.author, status="accepted")
+        Follower.objects.create(follower=self.author, following=self.friend, status="accepted")
+
+        friend_comment = Comment.objects.create(post=post, author=self.friend, comment="friend comment")
+        own_comment = Comment.objects.create(post=post, author=self.comment_author, comment="my own comment")
+
+        comments_url = reverse(
+            "posts:api-post-comments",
+            kwargs={"author_id": post.author_id, "post_id": post.id},
+        )
+
+        self.client.force_login(self.comment_author)
+        response = self.client.get(comments_url)
+        self.assertEqual(response.status_code, 200)
+        comment_texts = [item["comment"] for item in response.json()["src"]]
+        self.assertIn("my own comment", comment_texts)
+        self.assertNotIn("friend comment", comment_texts)
+
+        # Quick sanity check so this test doesn't accidentally pass with no comments.
+        self.assertEqual(Comment.objects.filter(post=post).count(), 2)
+        self.assertIsNotNone(friend_comment.id)
+        self.assertIsNotNone(own_comment.id)
+
+    # User Story 4: receiver of a public entry can see like count.
+    def test_story4_public_entry_shows_likes_to_receiver(self):
+        public_post = Post.objects.create(
+            author=self.author,
+            title="shared public",
+            content="take a look",
+            visibility=Post.Visibility.PUBLIC,
+        )
+        Like.objects.create(author=self.liker, post=public_post)
+
+        self.client.force_login(self.receiver)
+        detail_url = reverse(
+            "posts:api-post-detail",
+            kwargs={"author_id": public_post.author_id, "post_id": public_post.id},
+        )
+        response = self.client.get(detail_url)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["type"], "entry")
+        self.assertEqual(payload["likes"]["count"], 1)

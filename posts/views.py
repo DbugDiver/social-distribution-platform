@@ -50,6 +50,18 @@ def _can_interact_with_post(user, post):
         return True
     return _is_friend(user, post.author)
 
+
+def _visible_comments_for_viewer(user, post):
+    # User Story 3: on FRIENDS entries, comments are visible to friends and each comment's author.
+    comments = post.comments.select_related("author").prefetch_related("likes")
+    if post.visibility != Post.Visibility.FRIENDS:
+        return comments
+    if not user.is_authenticated:
+        return comments.none()
+    if user == post.author or _is_friend(user, post.author):
+        return comments
+    return comments.filter(author=user)
+
 """
 This function handle the logic for displaying the stream of posts.
 It will GET the posts that are not deleted, ordered by created time (newest first).
@@ -91,7 +103,8 @@ def stream(request):
         p.like_count = p.likes.count()
         p.comment_count = p.comments.count()
         p.liked_by_me = p.id in post_liked_ids
-        p.comment_list = list(p.comments.all()[:3])
+        # User Story 3: preview only comments visible to this viewer.
+        p.comment_list = list(_visible_comments_for_viewer(user, p)[:3])
         for c in p.comment_list:
             c.like_count = c.likes.count()
             c.liked_by_me = c.id in comment_liked_ids
@@ -111,31 +124,34 @@ If markdown then it will convert it to HTML.
 Finally, it will send the post content to the detail.html template for rendering.
 """
 def detail(request, post_id):
-    if request.user.is_superuser:
-        post = get_object_or_404(Post, id=post_id)
-    else:
-        post = get_object_or_404(Post, id=post_id, deleted=False)
+    post = get_object_or_404(Post, id=post_id, deleted=False)
 
-        # public everyone allowed
-        if post.visibility == Post.Visibility.PUBLIC: pass # allowing direct link to all public
-        # unlisted everyone allowed
-        elif post.visibility == Post.Visibility.UNLISTED: pass  # Anyone with link can see
-        # friends only allowed if user is author
-        elif post.visibility == Post.Visibility.FRIENDS:
-            if not request.user.is_authenticated:
-                return HttpResponseForbidden("Login required.")
-            if request.user != post.author and not _is_friend(request.user, post.author):
-                return HttpResponseForbidden("Not allowed.")
-        # Safety fallback 
-        else:
-            return HttpResponseForbidden("Invalid visibility.")
+    # public everyone allowed
+    if post.visibility == Post.Visibility.PUBLIC: pass # allowing direct link to all public
+    # unlisted everyone allowed
+    elif post.visibility == Post.Visibility.UNLISTED: pass  # Anyone with link can see
+    # friends only allowed if user is author
+    elif post.visibility == Post.Visibility.FRIENDS:
+        if not request.user.is_authenticated:
+            return HttpResponseForbidden("Login required.")
+        # User Story 3: keep FRIENDS visibility, but let existing comment authors still view their own thread.
+        if (
+            request.user != post.author
+            and not _is_friend(request.user, post.author)
+            and not post.comments.filter(author=request.user).exists()
+        ):
+            return HttpResponseForbidden("Not allowed.")
+    # Safety fallback 
+    else:
+        return HttpResponseForbidden("Invalid visibility.")
     
     rendered = None
     if post.content_type == Post.ContentType.MARKDOWN:
         rendered = _render_markdown(post.content)
 
     # Changed section: populate comment list + like state for detail template.
-    comments = post.comments.select_related("author").prefetch_related("likes")
+    # User Story 3: enforce per-viewer visibility on comments for FRIENDS posts.
+    comments = _visible_comments_for_viewer(request.user, post)
     comment_liked_ids = set()
     post_liked_by_me = False
     if request.user.is_authenticated:
@@ -162,7 +178,7 @@ def detail(request, post_id):
 
 @login_required
 def add_comment(request, post_id):
-    # Changed section: create a post comment from web form, then redirect back.
+    # User Story 2/3: HTML form endpoint for comment creation with visibility guard.
     post = get_object_or_404(Post, id=post_id, deleted=False)
     if request.method != "POST":
         raise Http404()
@@ -196,7 +212,7 @@ def author_posts(request, author_id):
 
 @login_required
 def like_post(request, post_id):
-    # Changed section: idempotent post-like endpoint for web form submissions.
+    # User Story 4: HTML form endpoint that records likes on shared/public entries.
     post = get_object_or_404(Post, id=post_id, deleted=False)
     if request.method != "POST":
         raise Http404()
@@ -210,7 +226,7 @@ def like_post(request, post_id):
 
 @login_required
 def like_comment(request, post_id, comment_id):
-    # Changed section: idempotent comment-like endpoint for web form submissions.
+    # User Story 3: HTML form endpoint to like comments if viewer is allowed to see that thread.
     post = get_object_or_404(Post, id=post_id, deleted=False)
     comment = get_object_or_404(Comment, id=comment_id, post=post)
     if request.method != "POST":
