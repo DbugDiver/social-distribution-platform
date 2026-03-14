@@ -674,3 +674,63 @@ body{
     font-size: 24px;
     padding: 16px 28px;
 }
+.author-list {
+    list-style-type: disc;
+    padding-left: 25px;
+}
+
+.author-row {
+    margin: 12px 0;
+    font-size: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.author-link {
+    text-decoration: none;
+    color: #333;
+    font-weight: 500;
+}
+
+.author-link:hover {
+    text-decoration: underline;
+}
+
+.author-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.icon-btn {
+    text-decoration: none;
+    font-size: 1.2rem;
+    padding: 4px 6px;
+    border-radius: 6px;
+}
+
+.delete-btn:hover {
+    color: red;
+}
+
+.node-author-admin .author-row {
+    display: flex;
+    justify-content: flex-start !important;
+    align-items: center;
+    gap: 8px;
+}
+
+.node-author-admin .author-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.node-author-admin .admin-icon {
+    font-size: 14px !important;
+}
+.admin-back-container {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+}

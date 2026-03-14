@@ -10,8 +10,17 @@
 
 <div class="container">
     <h1 style="text-align:center;">Node Admin Panel</h1>
-    <a href="{% url 'approvals' %}">
+
+    <a href="{% url 'approvals' %}" style="display:block; margin:10px 0;">
         Approve Users
+    </a>
+
+    <a href="{% url 'manage-authors' %}" style="display:block; margin:10px 0;">
+        View Authors
+    </a>
+
+    <a href="{% url 'add-author' %}" style="display:block; margin:10px 0;">
+        Add Author
     </a>
 </div>
 
