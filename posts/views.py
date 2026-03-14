@@ -1,4 +1,4 @@
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -163,7 +163,7 @@ def detail(request, post_id):
         c.like_count = c.likes.count()
         c.liked_by_me = c.id in comment_liked_ids
 
-   
+    
     return render(
         request,
         "posts/detail.html",
@@ -197,6 +197,18 @@ def add_comment(request, post_id):
     next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("posts:detail", post_id=post.id).url
     return redirect(next_url)
 
+def superuser_required(user):
+    return user.is_superuser
+
+@user_passes_test(superuser_required)
+def author_posts(request, author_id):
+    author = get_object_or_404(Author, id=author_id)
+    posts = Post.objects.filter(author=author)
+
+    return render(request, "posts/author_posts.html", {
+        "author": author,
+        "posts": posts
+    })
 
 @login_required
 def like_post(request, post_id):

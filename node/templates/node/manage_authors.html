@@ -1,0 +1,50 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+
+<body class="node-admin-page">
+
+<div class="node-author-admin">
+
+<h2>Author Management</h2>
+
+<ul class="author-list">
+
+{% for author in authors %}
+<li>
+
+<div class="author-row">
+
+    <a class="author-link" href="{% url 'posts:author-posts' author.id %}">
+        {{ author.displayName|default:author.username }} | {{ author.username }}
+    </a>
+
+    <span class="author-actions">
+
+        <a class="icon-btn admin-icon"
+           href="{% url 'edit-profile' author.id %}">
+           ✏️
+        </a>
+
+        <a class="icon-btn delete-btn admin-icon"
+           href="{% url 'delete-author' author.id %}">
+           🗑
+        </a>
+
+    </span>
+
+</div>
+
+</li>
+{% endfor %}
+
+</ul>
+
+</div>
+
+<nav class="admin-back-container">
+    <a href="{% url 'node-admin-dashboard' %}" class="nav-link admin-back-stream">
+        ← Back to Node Admin
+    </a>
+</nav>
+
+</body>

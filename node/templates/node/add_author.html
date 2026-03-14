@@ -1,0 +1,34 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+
+<body class="node-admin-page">
+
+<h2>Add Author</h2>
+
+<form method="POST">
+    {% csrf_token %}
+
+    <label>Username</label>
+    <input type="text" name="username">
+
+    <label>Password</label>
+    <input type="password" name="password">
+
+    <button type="submit">Create Author</button>
+</form>
+
+<hr style="margin:20px 0;">
+
+{% if show_message %}
+<p style="color:red;">
+    Username already exists
+</p>
+{% endif %}
+
+<nav class="admin-back-container">
+    <a href="{% url 'node-admin-dashboard' %}" class="nav-link admin-back-stream">
+        ← Back to Node Admin
+    </a>
+</nav>
+
+</body>

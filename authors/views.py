@@ -19,7 +19,8 @@ from .models import Author, Follower, Notification
 @login_required
 def home_feed(request):
     """Main Page"""
-    return redirect("author-profile", pk=request.user.id)
+    #return redirect("author-profile", pk=request.user.id)
+    return redirect("posts:stream")
 
 
 @login_required
@@ -230,11 +231,11 @@ def signup_author(request):
 
 
 @login_required
-def edit_profile(request):
+def edit_profile(request, author_id):
     """Edit Profile Logic"""
     # Grab the currently logged-in user
-    author = request.user
-
+    #author = request.user
+    author = get_object_or_404(Author, id=author_id)
     if request.method == "POST":
         form = AuthorUpdateForm(request.POST, instance=author)
         if form.is_valid():

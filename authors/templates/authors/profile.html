@@ -28,7 +28,7 @@
             <header class="post-card" style="text-align: center; position: relative;">
 
                             {% if request.user == profile_user %}
-                            <a class="icon-btn" href="{% url 'edit-profile' %}" style="position: absolute; top: 16px; right: 16px; padding: 6px 6px; color: #fff; background-color: #fff; text-decoration: none; border-radius: 20px; font-weight: bold; font-size: 1.2rem;">
+                            <a class="icon-btn" href="{% url 'edit-profile' profile_user.id %}" style="position: absolute; top: 16px; right: 16px; padding: 6px 6px; color: #fff; background-color: #fff; text-decoration: none; border-radius: 20px; font-weight: bold; font-size: 1.2rem;">
                                 ✏️
                             </a>
                             {% endif %}
