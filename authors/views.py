@@ -218,14 +218,37 @@ def signup_author(request):
 @login_required
 def edit_profile(request):
     """Edit Profile Logic"""
-    # Grab the currently logged-in user
     author = request.user
 
     if request.method == "POST":
-        form = AuthorUpdateForm(request.POST, instance=author)
+        form = AuthorUpdateForm(request.POST, request.FILES, instance=author)
+
+        github_link = request.POST.get("github", "").strip()
+
+        # Check the GitHub link
+        if github_link and not github_link.startswith(
+            ("https://github.com/", "http://github.com/")
+        ):
+            # It's invalid! Return the page WITH the form so they don't lose their other edits
+            return render(
+                request,
+                "authors/edit_profile.html",
+                {
+                    "form": form,
+                    "error": "Please enter a valid GitHub profile link starting with https://github.com/",
+                },
+            )
+
+        # Handle the image upload
+        if "profileImage" in request.FILES:
+            author.profileImage = request.FILES["profileImage"]
+
+        # If we get down here, the GitHub link is either valid or empty.
         if form.is_valid():
             form.save()
+            author.save()  # Because github is in your form, form.save() saves it automatically! No need for author.github = github_link
             return redirect("author-profile", pk=author.pk)
+
     else:
         # If it's a GET request, load the form pre-filled with their current info
         form = AuthorUpdateForm(instance=author)
