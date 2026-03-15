@@ -211,7 +211,6 @@ class CommentsLikesApiTests(TestCase):
 		self.assertEqual(payload["type"], "likes")
 		self.assertEqual(len(payload["src"]), 2)
 
-
 """
     Rosy: Can you help me write a rest api test for this copied and pasted @login_required def create(request), and models.py
     ChatGPT: Some of the PostsViewTests(idea taken for initial testing appraoch) and all of setUpTestData function is based on suggestion provided
@@ -259,6 +258,31 @@ class PostsViewTests(TestCase):
     # -------------------------------------------
     # Stream tests
     # -------------------------------------------
+    
+    # User Story 60: As a node admin, I don't want separate frontend and backend web servers,
+    # so both UI pages and API endpoints should be served from the same Django server.
+    def test_frontend_and_api_served_by_same_server(self):
+        self._print_header("test_frontend_and_api_served_by_same_server")
+
+        self.login_as(self.author)
+
+        # Frontend request (HTML page)
+        ui_response = self.client.get(reverse("posts:stream"))
+        self.assertEqual(ui_response.status_code, 200)
+        self.assertIn("text/html", ui_response["Content-Type"])
+        print("Test Passed: Frontend HTML page served")
+
+        # Backend request (API JSON)
+        api_response = self.client.get(reverse("posts:api-stream"))
+        self.assertEqual(api_response.status_code, 200)
+        self.assertIn("application/json", api_response["Content-Type"])
+        print("Test Passed: API JSON served")
+
+        # Ensure both come from same test server
+        self.assertTrue(ui_response.wsgi_request.get_host().startswith("testserver"))
+        self.assertTrue(api_response.wsgi_request.get_host().startswith("testserver"))
+        print("Test Passed: Both frontend and backend served from same server")
+
     def test_login_required_to_see_stream(self):
         self._print_header("test_login_required_to_see_stream")
         res = self.client.get(reverse("posts:stream"))
@@ -276,6 +300,21 @@ class PostsViewTests(TestCase):
         self.assertContains(res, "Public Stream")
         print("Test Passed: Stream page contains 'Public Stream'")
 
+    # User Story 59: As a node admin, I don't want arrays stored in database fields,
+    # so relationships should be stored as separate relational rows
+    def test_no_array_fields_in_post_model(self):
+        print("\nChecking Post model fields for array-like storage...")
+
+        from django.db.models import JSONField
+        for field in Post._meta.get_fields():
+            print(f"Field checked: {field.name}")
+            # Ensure no JSON/array style fields exist
+            self.assertFalse(
+                isinstance(field, JSONField),
+                f"Array-like JSONField found: {field.name}"
+            )
+        print("Test Passed: No array-like fields exist in Post model")
+        
     # -------------------------------------------
     # Create tests
     # -------------------------------------------
@@ -436,7 +475,32 @@ class PostsViewTests(TestCase):
         self.post_plain.refresh_from_db()
         self.assertTrue(not self.post_plain.deleted)
         print("Test Passed: The post that non-author tried deleting remains undeleted")
-	
+        
+    # User Story 61: As a node admin, I want deleted entries to stay in the database
+    # and only be removed from the UI and API, so I can see what was deleted.
+    def test_deleted_post_remains_in_database_but_hidden(self):
+        self._print_header("test_deleted_post_remains_in_database_but_hidden")
+
+        self.login_as(self.author)
+
+        # Delete the post
+        res = self.client.post(reverse("posts:delete", args=[self.post_plain.id]))
+        self.assertEqual(res.status_code, 302)
+
+        # Ensure the row still exists in DB
+        exists_in_db = Post.objects.filter(id=self.post_plain.id).exists()
+        self.assertTrue(exists_in_db)
+        print("Test Passed: Deleted post still exists in the database")
+
+        # Ensure it is marked deleted
+        post = Post.objects.get(id=self.post_plain.id)
+        self.assertTrue(post.deleted)
+        print("Test Passed: Post is marked as deleted")
+
+        # Ensure it does not appear in the stream UI
+        res = self.client.get(reverse("posts:stream"))
+        self.assertNotContains(res, "plain text")
+        print("Test Passed: Deleted post does not appear in the stream UI")
 
 '''
 These tests below refers to user stories : Visibiltiy
@@ -532,3 +596,149 @@ class PostVisibilityTests(TestCase):
         for post in [self.public_post, self.unlisted_post, self.friends_post]:
             res = self.client.get(reverse("posts:detail", args=[post.id]))
             self.assertEqual(res.status_code, 200)
+
+
+class ProjectPart2StoryTests(TestCase):
+    """
+    Change citation:
+    - Tests added by Copilot to validate only the requested Project 2 user stories.
+    - Includes SQL-level index checks, REST route checks, and visibility/likes behavior checks.
+    """
+
+    def setUp(self):
+        self.author = Author.objects.create_user(
+            username="story_author",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Author",
+        )
+        self.friend = Author.objects.create_user(
+            username="story_friend",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Friend",
+        )
+        self.comment_author = Author.objects.create_user(
+            username="story_comment_author",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Comment Author",
+        )
+        self.receiver = Author.objects.create_user(
+            username="story_receiver",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Receiver",
+        )
+        self.liker = Author.objects.create_user(
+            username="story_liker",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Story Liker",
+        )
+
+    # User Story 1: relational DB should be well-indexed for common query paths.
+    def test_story1_sqlite_has_expected_indexes_for_core_tables(self):
+        from django.db import connection
+
+        expected_indexes_by_table = {
+            "posts_post": {
+                "post_author_del_created_idx",
+                "post_vis_del_created_idx",
+            },
+            "posts_comment": {
+                "comment_post_pub_idx",
+            },
+            "posts_like": {
+                "like_post_created_idx",
+                "like_comment_created_idx",
+            },
+            "authors_follower": {
+                "follower_status_idx",
+                "following_status_idx",
+            },
+        }
+
+        with connection.cursor() as cursor:
+            for table_name, expected_indexes in expected_indexes_by_table.items():
+                cursor.execute(f"PRAGMA index_list('{table_name}')")
+                rows = cursor.fetchall()
+                index_names = {row[1] for row in rows}
+
+                for idx_name in expected_indexes:
+                    self.assertIn(
+                        idx_name,
+                        index_names,
+                        msg=f"Missing expected index {idx_name} on {table_name}",
+                    )
+
+                    # Extra SQL-level check to confirm each index is physically defined with columns.
+                    cursor.execute(f"PRAGMA index_info('{idx_name}')")
+                    index_cols = cursor.fetchall()
+                    self.assertGreater(
+                        len(index_cols),
+                        0,
+                        msg=f"Index {idx_name} exists but has no indexed columns",
+                    )
+
+    # User Story 2: RESTful interface for core author operations.
+    def test_story2_rest_can_fetch_single_author(self):
+        self.client.force_login(self.receiver)
+        response = self.client.get(f"/authors/api/authors/{self.author.id}/")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["id"], f"http://testserver/authors/{self.author.id}")
+        self.assertEqual(payload["displayName"], "Story Author")
+
+    # User Story 3: friends-only post comments visible to friends and comment author.
+    def test_story3_friends_post_comment_visibility_scoped(self):
+        post = Post.objects.create(
+            author=self.author,
+            title="friends only",
+            content="private",
+            visibility=Post.Visibility.FRIENDS,
+        )
+        # Make exactly one mutual friend.
+        Follower.objects.create(follower=self.friend, following=self.author, status="accepted")
+        Follower.objects.create(follower=self.author, following=self.friend, status="accepted")
+
+        friend_comment = Comment.objects.create(post=post, author=self.friend, comment="friend comment")
+        own_comment = Comment.objects.create(post=post, author=self.comment_author, comment="my own comment")
+
+        comments_url = reverse(
+            "posts:api-post-comments",
+            kwargs={"author_id": post.author_id, "post_id": post.id},
+        )
+
+        self.client.force_login(self.comment_author)
+        response = self.client.get(comments_url)
+        self.assertEqual(response.status_code, 200)
+        comment_texts = [item["comment"] for item in response.json()["src"]]
+        self.assertIn("my own comment", comment_texts)
+        self.assertNotIn("friend comment", comment_texts)
+
+        # Quick sanity check so this test doesn't accidentally pass with no comments.
+        self.assertEqual(Comment.objects.filter(post=post).count(), 2)
+        self.assertIsNotNone(friend_comment.id)
+        self.assertIsNotNone(own_comment.id)
+
+    # User Story 4: receiver of a public entry can see like count.
+    def test_story4_public_entry_shows_likes_to_receiver(self):
+        public_post = Post.objects.create(
+            author=self.author,
+            title="shared public",
+            content="take a look",
+            visibility=Post.Visibility.PUBLIC,
+        )
+        Like.objects.create(author=self.liker, post=public_post)
+
+        self.client.force_login(self.receiver)
+        detail_url = reverse(
+            "posts:api-post-detail",
+            kwargs={"author_id": public_post.author_id, "post_id": public_post.id},
+        )
+        response = self.client.get(detail_url)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["type"], "entry")
+        self.assertEqual(payload["likes"]["count"], 1)

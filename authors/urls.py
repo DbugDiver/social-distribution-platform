@@ -22,7 +22,9 @@ urlpatterns = [
     path("login/", views.custom_login, name="login"),
     path("signup/", views.signup_author, name = "signup-author"),
     path("<uuid:pk>/", views.author_profile, name="author-profile"),
+    # Merge-fix: keep both URL forms so old links and tests continue to work.
     path("profile/edit/", views.edit_profile, name="edit-profile"),
+    path("profile/edit/<uuid:author_id>", views.edit_profile, name="edit-profile"),
     path("<uuid:pk>/follow/", views.send_a_follow_request, name="send-follow-request"),
     path("<uuid:pk>/follow/accept/", views.accept_follow_request, name="accept-follow-request"),
     path("<uuid:pk>/follow/reject/", views.reject_follow_request, name="reject-follow-request"),
@@ -33,6 +35,8 @@ urlpatterns = [
     path("inbox/", views.inbox, name="inbox"),
     path("search/", views.author_search, name="author-search"),
     #API endpoints
+    # User Story 2: REST GET author endpoint for alternate clients.
+    path("api/authors/<uuid:pk>/", api_views.api_get_author),
     path("api/authors/<uuid:pk>/follow/", api_views.api_follow_author),
     path("api/authors/<uuid:pk>/accept/", api_views.api_accept_follow),
     path("api/authors/<uuid:pk>/reject/", api_views.api_reject_follow),

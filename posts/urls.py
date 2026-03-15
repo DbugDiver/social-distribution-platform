@@ -17,6 +17,7 @@ urlpatterns = [
     path("<uuid:post_id>/comments/<uuid:comment_id>/like/", views.like_comment, name="like-comment"),
     path("<uuid:post_id>/", views.detail, name="detail"),
     path("<uuid:post_id>/edit/", views.edit, name="edit"),
+    path("<uuid:author_id>/posts/", views.author_posts, name="author-posts"),
     path("<uuid:post_id>/delete/", views.delete, name="delete"),
 
     # Changed section: API routes for entries/comments/likes (Part 1 local node scope).

@@ -1,0 +1,21 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+
+<h2>Posts by {{ author.displayName|default:author.username }}</h2>
+
+<ul class="author-list">
+
+{% for post in posts %}
+<li class="author-row">
+
+    <a class="author-link" href="{% url 'posts:detail' post.id %}">
+        {{ post.title }}
+    </a>
+
+</li>
+
+{% empty %}
+<li>This author has no posts.</li>
+{% endfor %}
+
+</ul>

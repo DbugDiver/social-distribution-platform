@@ -36,10 +36,18 @@ class Post(models.Model):
 
     # Optional image attachment for ANY post (plain or markdown)
     image = models.ImageField(upload_to="posts/", blank=True, null=True)
+    
     visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.PUBLIC)
     deleted = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # User Story 1: add practical indexes for common stream/detail queries.
+        indexes = [
+            models.Index(fields=["author", "deleted", "-created"], name="post_author_del_created_idx"),
+            models.Index(fields=["visibility", "deleted", "-created"], name="post_vis_del_created_idx"),
+        ]
 
     """
     The has_image property is a convenient way to check if a post has an
@@ -78,6 +86,10 @@ class Comment(models.Model):
 
     class Meta:
         ordering = ["-published"]
+        # User Story 1: speed up comment-list lookups on a post.
+        indexes = [
+            models.Index(fields=["post", "-published"], name="comment_post_pub_idx"),
+        ]
 
     def __str__(self):
         return f"Comment {self.id} on {self.post_id}"
@@ -128,6 +140,11 @@ class Like(models.Model):
             ),
         ]
         ordering = ["-created"]
+        # User Story 1: improve listing likes by object/time.
+        indexes = [
+            models.Index(fields=["post", "-created"], name="like_post_created_idx"),
+            models.Index(fields=["comment", "-created"], name="like_comment_created_idx"),
+        ]
 
     def __str__(self):
         target = self.post_id or self.comment_id

@@ -43,6 +43,11 @@ class Follower(models.Model):
     # i got the Meta from GPT and it does not allow the same follower to follow the same following more than once, it will raise an error if we try to create a duplicate entry in the database
     class Meta:
         unique_together = ("follower", "following")
+        # User Story 1: indexes for accepted-follow and mutual-follow checks.
+        indexes = [
+            models.Index(fields=["follower", "status"], name="follower_status_idx"),
+            models.Index(fields=["following", "status"], name="following_status_idx"),
+        ]
 
     def __str__(self):
         return f"{self.follower} → {self.following} ({self.status})"

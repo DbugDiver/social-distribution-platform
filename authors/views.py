@@ -19,14 +19,27 @@ from .models import Author, Follower, Notification
 @login_required
 def home_feed(request):
     """Main Page"""
-    return redirect("author-profile", pk=request.user.id)
+    #return redirect("author-profile", pk=request.user.id)
+    return redirect("posts:stream")
 
 
 @login_required
 def author_profile(request, pk):
     """Authors Page with github activity and posts feed"""
     author = get_object_or_404(Author, pk=pk)
+    is_following = False
+    follow_status = None
 
+    if request.user != author:
+        follow = Follower.objects.filter(
+            follower=request.user,
+            following=author
+        ).first()
+
+        if follow:
+            follow_status = follow.status
+            if follow.status == "accepted":
+                is_following = True
     # 1. Determine if the person viewing is a mutual friend of the profile owner
     is_friend = False
     if request.user != author:
@@ -166,6 +179,8 @@ def author_profile(request, pk):
         "profile_user": author,
         "posts": posts,
         "github_events": github_events,
+        "is_following": is_following,
+        "follow_status": follow_status,
     }
 
     return render(request, "authors/profile.html", context)
@@ -216,10 +231,12 @@ def signup_author(request):
 
 
 @login_required
-def edit_profile(request):
+def edit_profile(request, author_id=None):
     """Edit Profile Logic"""
+    # Merge-fix: default to current user, and block editing someone else's profile.
     author = request.user
-
+    if author_id is not None and author_id != request.user.id:
+        return redirect("author-profile", pk=request.user.id)
     if request.method == "POST":
         form = AuthorUpdateForm(request.POST, request.FILES, instance=author)
 
@@ -259,25 +276,43 @@ def edit_profile(request):
 @login_required
 def send_a_follow_request(request, pk):
     """Send a follow request to another author"""
-    author = request.user  # get the currently logged in user
-
-    following = get_object_or_404(
-        Author, pk=pk
-    )  # get the author that the user wants to follow, if the author does not exist, return a 404 error
+    author = request.user
+    following = get_object_or_404(Author, pk=pk)
 
     if author == following:
         return redirect("author-profile", pk=pk)
-    # check if the follow request already exists
-    follow_object, created = Follower.objects.get_or_create(
-        follower=author, following=following, defaults={"status": "pending"}
-    )  # create a new follow request for the following author, if it already exists, do nothing
-    if created:
+
+    follow = Follower.objects.filter(
+        follower=author,
+        following=following
+    ).first()
+
+    if follow:
+        if follow.status == "rejected":
+            follow.status = "pending"
+            follow.save()
+
+            Notification.objects.create(
+                recipient=following,
+                sender=author,
+                notification_type="follow_request",
+                message=f"{author.displayName or author.username} wants to follow you.",
+            )
+
+    else:
+        Follower.objects.create(
+            follower=author,
+            following=following,
+            status="pending"
+        )
+
         Notification.objects.create(
             recipient=following,
             sender=author,
             notification_type="follow_request",
             message=f"{author.displayName or author.username} wants to follow you.",
         )
+
     return redirect("author-profile", pk=pk)
 
 
@@ -300,7 +335,7 @@ def accept_follow_request(request, pk):
         recipient=follower,
         sender=author,
         notification_type="follow_accepted",
-        message=f"{author.displayName} accepted your follow request",
+        message=f"{author.displayName or author.username} accepted your follow request",
     )
 
     return redirect("author-profile", pk=author.pk)
