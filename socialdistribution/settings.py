@@ -123,3 +123,5 @@ else:
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "authors.Author"
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
