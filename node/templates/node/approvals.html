@@ -10,44 +10,54 @@
 <body>
 
 <main class="page">
-  <section class="feed">
-    <article class="post-card">
 
-      <h2>Pending User Approvals</h2>
-      {% if pending_users %}
-        <ul>
-        {% for user in pending_users %}
+<section class="feed">
 
-        <div style="margin-bottom:10px;">
-            {{ user.username }}
+<article class="post-card">
 
-            <form method="post" action="{% url 'handle_approval' %}" style="display:inline;">
-                {% csrf_token %}
-                <input type="hidden" name="author_id" value="{{ user.id }}">
+<h2>Pending User Approvals</h2>
 
-                <button type="submit" name="action" value="accept" class="pill">
-                    Accept
-                </button>
+{% if pending_users %}
 
-                <button type="submit" name="action" value="reject" class="pill">
-                Reject
-                </button>
+<ul>
+{% for user in pending_users %}
 
-            </form>
-        </div>
+<li style="margin-bottom:10px;">
+    {{ user.username }}
 
-        {% endfor %}
-        </ul>
+    <form method="post" action="{% url 'handle_approval' %}" style="display:inline;">
+        {% csrf_token %}
+        <input type="hidden" name="author_id" value="{{ user.id }}">
 
-      {% else %}
-        <p>No users waiting for approval.</p>
-      {% endif %}
-      <a href="{% url 'node-admin-dashboard' %}" class="pill">
-        ← Back to Node Admin
-       </a>
+        <button type="submit" name="action" value="accept" class="pill">
+            Accept
+        </button>
 
-    </article>
-  </section>
+        <button type="submit" name="action" value="reject" class="pill">
+            Reject
+        </button>
+
+    </form>
+</li>
+
+{% endfor %}
+</ul>
+
+{% else %}
+<p>No users waiting for approval.</p>
+{% endif %}
+
+</article>
+
+<nav>
+<a href="{% url 'node-admin-dashboard' %}" class="pill">
+← Back to Node Admin
+</a>
+</nav>
+
+</section>
+
 </main>
+
 </body>
 </html>

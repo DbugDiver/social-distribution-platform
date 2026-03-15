@@ -1,6 +1,7 @@
 {% load static %}
 <!doctype html>
 <html>
+
 <head>
   <title>Welcome</title>
   <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
@@ -8,26 +9,44 @@
 
 <body class="node-admin-page">
 
-<div class="container">
-    <h1 style="text-align:center;">Node Admin Panel</h1>
+<main>
 
-    <a href="{% url 'approvals' %}" style="display:block; margin:10px 0;">
-        Approve Users
-    </a>
+<header>
+<h1 style="text-align:center;">Node Admin Panel</h1>
+</header>
 
-    <a href="{% url 'manage-authors' %}" style="display:block; margin:10px 0;">
-        View Authors
-    </a>
+<nav class="container">
 
-    <a href="{% url 'add-author' %}" style="display:block; margin:10px 0;">
-        Add Author
-    </a>
-</div>
+<ul>
+
+<li>
+<a href="{% url 'approvals' %}">
+Approve Users
+</a>
+</li>
+
+<li>
+<a href="{% url 'manage-authors' %}">
+View Authors
+</a>
+</li>
+
+<li>
+<a href="{% url 'add-author' %}">
+Add Author
+</a>
+</li>
+
+</ul>
+
+</nav>
+
+</main>
 
 <nav class="admin-back-container">
-      <a href="{% url 'posts:stream' %}" class="nav-link admin-back-stream">
-          ← Back to Stream
-      </a>
+<a href="{% url 'posts:stream' %}" class="nav-link admin-back-stream">
+← Back to Stream
+</a>
 </nav>
 
 </body>

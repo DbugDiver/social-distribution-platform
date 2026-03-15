@@ -234,9 +234,15 @@ def signup_author(request):
 def edit_profile(request, author_id=None):
     """Edit Profile Logic"""
     # Merge-fix: default to current user, and block editing someone else's profile.
-    author = request.user
-    if author_id is not None and author_id != request.user.id:
-        return redirect("author-profile", pk=request.user.id)
+    
+    # If admin, allow editing any author
+    if request.user.is_superuser:
+        author = get_object_or_404(Author, id=author_id)
+    else:
+        if author_id is not None and author_id != request.user.id:
+            return redirect("author-profile", pk=request.user.id)
+        author = request.user
+        
     if request.method == "POST":
         form = AuthorUpdateForm(request.POST, instance=author)
         if form.is_valid():

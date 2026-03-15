@@ -124,26 +124,29 @@ If markdown then it will convert it to HTML.
 Finally, it will send the post content to the detail.html template for rendering.
 """
 def detail(request, post_id):
-    post = get_object_or_404(Post, id=post_id, deleted=False)
-
-    # public everyone allowed
-    if post.visibility == Post.Visibility.PUBLIC: pass # allowing direct link to all public
-    # unlisted everyone allowed
-    elif post.visibility == Post.Visibility.UNLISTED: pass  # Anyone with link can see
-    # friends only allowed if user is author
-    elif post.visibility == Post.Visibility.FRIENDS:
-        if not request.user.is_authenticated:
-            return HttpResponseForbidden("Login required.")
-        # User Story 3: keep FRIENDS visibility, but let existing comment authors still view their own thread.
-        if (
-            request.user != post.author
-            and not _is_friend(request.user, post.author)
-            and not post.comments.filter(author=request.user).exists()
-        ):
-            return HttpResponseForbidden("Not allowed.")
-    # Safety fallback 
+    if request.user.is_superuser:
+        post = get_object_or_404(Post, id=post_id)
     else:
-        return HttpResponseForbidden("Invalid visibility.")
+        post = get_object_or_404(Post, id=post_id, deleted=False)
+
+        # public everyone allowed
+        if post.visibility == Post.Visibility.PUBLIC: pass # allowing direct link to all public
+        # unlisted everyone allowed
+        elif post.visibility == Post.Visibility.UNLISTED: pass  # Anyone with link can see
+        # friends only allowed if user is author
+        elif post.visibility == Post.Visibility.FRIENDS:
+            if not request.user.is_authenticated:
+                return HttpResponseForbidden("Login required.")
+            # User Story 3: keep FRIENDS visibility, but let existing comment authors still view their own thread.
+            if (
+                request.user != post.author
+                and not _is_friend(request.user, post.author)
+                and not post.comments.filter(author=request.user).exists()
+            ):
+                return HttpResponseForbidden("Not allowed.")
+        # Safety fallback 
+        else:
+            return HttpResponseForbidden("Invalid visibility.")
     
     rendered = None
     if post.content_type == Post.ContentType.MARKDOWN:

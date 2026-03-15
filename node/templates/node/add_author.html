@@ -3,27 +3,31 @@
 
 <body class="node-admin-page">
 
+<header>
 <h2>Add Author</h2>
+</header>
+
+<main>
 
 <form method="POST">
     {% csrf_token %}
 
-    <label>Username</label>
-    <input type="text" name="username">
+    <label for="username">Username</label>
+    <input id="username" type="text" name="username">
 
-    <label>Password</label>
-    <input type="password" name="password">
+    <label for="password">Password</label>
+    <input id="password" type="password" name="password">
 
     <button type="submit">Create Author</button>
 </form>
 
-<hr style="margin:20px 0;">
-
 {% if show_message %}
-<p style="color:red;">
+<p class="error-message" role="alert">
     Username already exists
 </p>
 {% endif %}
+
+</main>
 
 <nav class="admin-back-container">
     <a href="{% url 'node-admin-dashboard' %}" class="nav-link admin-back-stream">

@@ -24,7 +24,7 @@ def add_author_page(request):
                 "node/add_author.html",
                 {"show_message": True}
             )
-        Author.objects.create(
+        Author.objects.create_user(
             username=username,
             password=password,
             is_approved=True
@@ -50,8 +50,7 @@ def approvals(request):
 @user_passes_test(superuser_required)
 def manage_authors(request):
     authors = Author.objects.all()
-    for author in authors:
-        print(author.displayName)
+
     return render(request, "node/manage_authors.html", {"authors": authors})
 @user_passes_test(superuser_required)
 def delete_author(request, author_id):
