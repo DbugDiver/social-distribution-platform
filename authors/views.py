@@ -1,5 +1,7 @@
 from datetime import datetime
 from socket import timeout
+from django.views.decorators.csrf import csrf_exempt
+
 
 import markdown as md  # If you are rendering markdown here
 import requests
@@ -208,7 +210,7 @@ def custom_login(request):
         )
     return render(request, "registration/login.html", {"form": form})
 
-
+@csrf_exempt
 def signup_author(request):
     if request.method == "POST":
         username = request.POST.get("username")
@@ -242,7 +244,7 @@ def edit_profile(request, author_id=None):
         if author_id is not None and author_id != request.user.id:
             return redirect("author-profile", pk=request.user.id)
         author = request.user
-        
+
     if request.method == "POST":
         form = AuthorUpdateForm(request.POST, request.FILES, instance=author)
 
