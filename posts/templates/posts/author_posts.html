@@ -1,21 +1,66 @@
 {% load static %}
-<link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+<!doctype html>
+<html>
 
-<h2>Posts by {{ author.displayName|default:author.username }}</h2>
+<head>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+</head>
 
-<ul class="author-list">
+<body style="background-color: #f5f5f5; font-family: Arial, sans-serif;">
 
-{% for post in posts %}
-<li class="author-row">
+<main style="display: flex; justify-content: center; padding: 2rem;">
 
-    <a class="author-link" href="{% url 'posts:detail' post.id %}">
-        {{ post.title }}
-    </a>
+  <section style="background-color: #fff; 
+                  border: 2px solid #4fc3f7; 
+                  border-radius: 12px; 
+                  box-shadow: 0 6px 15px rgba(0,0,0,0.1); 
+                  padding: 2rem; 
+                  max-width: 600px; 
+                  width: 100%;">
 
-</li>
+    <h2 style="text-align: center; margin-bottom: 2rem; color: #333;">
+      Posts by {{ author.displayName|default:author.username }}
+    </h2>
 
-{% empty %}
-<li>This author has no posts.</li>
-{% endfor %}
+    <ul style="list-style: none; padding: 0; margin: 0;">
+      {% for post in posts %}
+        <li style="margin-bottom: 1rem;">
+          <a href="{% url 'posts:detail' post.id %}" 
+             style="display: block; 
+                    padding: 0.8rem 1rem; 
+                    background-color: #e1f5fe; 
+                    border-radius: 8px; 
+                    text-decoration: none; 
+                    color: #00796b; 
+                    font-weight: bold;
+                    transition: background-color 0.3s ease;">
+            {{ post.title }}
+          </a>
+        </li>
+      {% empty %}
+        <li style="color: #777; text-align: center; padding: 1rem;">
+          This author has no posts.
+        </li>
+      {% endfor %}
+    </ul>
 
-</ul>
+    <nav style="margin-top: 2rem; text-align: center;">
+      <a href="{% url 'node-admin-dashboard' %}" 
+         style="display: inline-block;
+                text-decoration: none;
+                color: white;
+                background-color: #00796b;
+                padding: 0.6rem 1.2rem;
+                border-radius: 25px;
+                font-weight: bold;
+                transition: background-color 0.3s ease;"
+         onmouseover="this.style.backgroundColor='#004d40';"
+         onmouseout="this.style.backgroundColor='#00796b';">
+        ← Back to Node Admin
+      </a>
+    </nav>
+
+  </section>
+</main>
+</body>
+</html>

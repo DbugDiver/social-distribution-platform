@@ -15,7 +15,6 @@ Change citation (local project work):
 - Includes pagination checks and deleted-post interaction denial checks.
 """
 
-
 class CommentsLikesApiTests(TestCase):
 	def setUp(self):
 		self.author = Author.objects.create_user(
@@ -598,7 +597,7 @@ class PostVisibilityTests(TestCase):
             self.assertEqual(res.status_code, 200)
 
 
-class ProjectPart2StoryTests(TestCase):
+class RestAndDatabaseTests(TestCase):
     """
     Change citation:
     - Tests added by Copilot to validate only the requested Project 2 user stories.
@@ -638,7 +637,7 @@ class ProjectPart2StoryTests(TestCase):
         )
 
     # User Story 1: relational DB should be well-indexed for common query paths.
-    def test_story1_sqlite_has_expected_indexes_for_core_tables(self):
+    def test_sqlite_has_expected_indexes_for_core_tables(self):
         from django.db import connection
 
         expected_indexes_by_table = {
@@ -682,7 +681,7 @@ class ProjectPart2StoryTests(TestCase):
                     )
 
     # User Story 2: RESTful interface for core author operations.
-    def test_story2_rest_can_fetch_single_author(self):
+    def test_rest_can_fetch_single_author(self):
         self.client.force_login(self.receiver)
         response = self.client.get(f"/authors/api/authors/{self.author.id}/")
         self.assertEqual(response.status_code, 200)
@@ -691,7 +690,7 @@ class ProjectPart2StoryTests(TestCase):
         self.assertEqual(payload["displayName"], "Story Author")
 
     # User Story 3: friends-only post comments visible to friends and comment author.
-    def test_story3_friends_post_comment_visibility_scoped(self):
+    def test_friends_post_comment_visibility_scoped(self):
         post = Post.objects.create(
             author=self.author,
             title="friends only",
@@ -723,7 +722,7 @@ class ProjectPart2StoryTests(TestCase):
         self.assertIsNotNone(own_comment.id)
 
     # User Story 4: receiver of a public entry can see like count.
-    def test_story4_public_entry_shows_likes_to_receiver(self):
+    def test_public_entry_shows_likes_to_receiver(self):
         public_post = Post.objects.create(
             author=self.author,
             title="shared public",

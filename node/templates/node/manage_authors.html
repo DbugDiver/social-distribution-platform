@@ -3,53 +3,67 @@
 <html>
 
 <head>
-<link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
 </head>
 
-<body class="node-admin-page">
+<body class="node-admin-page" style="background-color: #f5f5f5; font-family: Arial, sans-serif;">
 
-<main class="node-author-admin">
+<main style="display: flex; justify-content: center; align-items: flex-start; min-height: 80vh; padding-top: 2rem;">
 
-<h2>Author Management</h2>
+  <section style="background-color: #fff; 
+                  border: 2px solid #4fc3f7; 
+                  border-radius: 12px; 
+                  box-shadow: 0 6px 15px rgba(0,0,0,0.1); 
+                  padding: 2rem; 
+                  max-width: 600px; 
+                  width: 100%;">
+    
+    <h2 style="margin-bottom: 1.5rem; color: #333; text-align: center;">Author Management</h2>
 
-<ul class="author-list">
+    <ul style="list-style: none; padding: 0; margin: 0;">
 
-{% for author in authors %}
-<li>
+      {% for author in authors %}
+        <li style="margin-bottom: 1rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+          
+          <a class="author-link" href="{% url 'posts:author-posts' author.id %}" style="color: #00796b; text-decoration: none; font-weight: bold;">
+            {{ author.displayName|default:author.username }} | {{ author.username }}
+          </a>
 
-<article class="author-row">
+          <span class="author-actions" style="display: flex; gap: 0.5rem;">
+            <a class="icon-btn admin-icon" href="{% url 'edit-profile' author.id %}" 
+               style="text-decoration: none; font-size: 1.2rem; cursor: pointer;">
+              ✏️
+            </a>
 
-<a class="author-link" href="{% url 'posts:author-posts' author.id %}">
-{{ author.displayName|default:author.username }} | {{ author.username }}
-</a>
+            <a class="icon-btn delete-btn admin-icon" href="{% url 'delete-author' author.id %}" 
+               style="text-decoration: none; font-size: 1.2rem; cursor: pointer;">
+              🗑
+            </a>
+          </span>
 
-<span class="author-actions">
+        </li>
+      {% endfor %}
 
-<a class="icon-btn admin-icon"
-href="{% url 'edit-profile' author.id %}">
-✏️
-</a>
+    </ul>
 
-<a class="icon-btn delete-btn admin-icon"
-href="{% url 'delete-author' author.id %}">
-🗑
-</a>
-
-</span>
-
-</article>
-
-</li>
-{% endfor %}
-
-</ul>
+  </section>
 
 </main>
 
-<nav class="admin-back-container">
-<a href="{% url 'node-admin-dashboard' %}" class="nav-link admin-back-stream">
-← Back to Node Admin
-</a>
+<nav style="display: flex; justify-content: center; margin-top: 2rem;">
+  <a href="{% url 'node-admin-dashboard' %}" 
+     style="display: inline-block;
+            text-decoration: none;
+            color: white;
+            background-color: #00796b;
+            padding: 0.6rem 1.2rem;
+            border-radius: 25px;
+            font-weight: bold;
+            transition: background-color 0.3s ease;"
+     onmouseover="this.style.backgroundColor='#004d40';"
+     onmouseout="this.style.backgroundColor='#00796b';">
+      ← Back to Node Admin
+  </a>
 </nav>
 
 </body>

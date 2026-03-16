@@ -7,55 +7,50 @@
   <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
 </head>
 
-<body>
+<body style="background-color: #f5f5f5; font-family: Arial, sans-serif;">
 
-<main class="page">
+<main style="display: flex; justify-content: center; align-items: center; min-height: 80vh;">
 
-<section class="feed">
+  <section style="background-color: #fff; 
+                  border: 2px solid #4fc3f7; 
+                  border-radius: 12px; 
+                  box-shadow: 0 6px 15px rgba(0,0,0,0.1); 
+                  padding: 2rem; 
+                  max-width: 500px; 
+                  width: 100%; 
+                  text-align: center;">
+    
+    <h2 style="margin-bottom: 1.5rem; color: #333;">Pending User Approvals</h2>
 
-<article class="post-card">
+    {% if pending_users %}
+      <ul style="list-style: none; padding: 0; margin: 0;">
+        {% for user in pending_users %}
+          <li style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 0.5rem;">
+            <span style="color: #555;">{{ user.username }}</span>
+            <form method="post" action="{% url 'handle_approval' %}" style="display: inline;">
+              {% csrf_token %}
+              <input type="hidden" name="author_id" value="{{ user.id }}">
+              <button type="submit" name="action" value="accept" class="pill" style="margin-right: 0.5rem; background-color: #4caf50; color: white; border: none; border-radius: 20px; padding: 0.4rem 0.8rem; cursor: pointer;">
+                Accept
+              </button>
+              <button type="submit" name="action" value="reject" class="pill" style="background-color: #f44336; color: white; border: none; border-radius: 20px; padding: 0.4rem 0.8rem; cursor: pointer;">
+                Reject
+              </button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p style="color: #777; margin-top: 1rem;">No users waiting for approval.</p>
+    {% endif %}
 
-<h2>Pending User Approvals</h2>
+    <nav style="margin-top: 2rem;">
+      <a href="{% url 'node-admin-dashboard' %}" class="pill" style="text-decoration: none; color: #00796b; font-weight: bold;">
+        ← Back to Node Admin
+      </a>
+    </nav>
 
-{% if pending_users %}
-
-<ul>
-{% for user in pending_users %}
-
-<li style="margin-bottom:10px;">
-    {{ user.username }}
-
-    <form method="post" action="{% url 'handle_approval' %}" style="display:inline;">
-        {% csrf_token %}
-        <input type="hidden" name="author_id" value="{{ user.id }}">
-
-        <button type="submit" name="action" value="accept" class="pill">
-            Accept
-        </button>
-
-        <button type="submit" name="action" value="reject" class="pill">
-            Reject
-        </button>
-
-    </form>
-</li>
-
-{% endfor %}
-</ul>
-
-{% else %}
-<p>No users waiting for approval.</p>
-{% endif %}
-
-</article>
-
-<nav>
-<a href="{% url 'node-admin-dashboard' %}" class="pill">
-← Back to Node Admin
-</a>
-</nav>
-
-</section>
+  </section>
 
 </main>
 

@@ -5,7 +5,7 @@
   <title>Stream</title>
   <link rel="stylesheet" href="{% static 'honeydew/style.css' %}"> <!-- Load the CSS file for styling -->
 </head>
-<body>
+<body style="display: flex; flex-direction: column; min-height: 100vh; margin: 0;">
 
 <header class="header">
   <section class="header-inner">
@@ -43,7 +43,7 @@
   </section>
 </header>
 
-<main class="page">
+<main class="page" style="flex: 1;">
   <section class="layout" aria-label="Stream layout">
 
     <!-- Main feed -->
@@ -52,23 +52,23 @@
 
       {% for post in posts %}
         <article class="post-card">
-
           <header class="post-header-row">
             <address class="post-header">
               {% if post.author.profileImage %}
-                <img
-                  src="{{ post.author.profileImage }}"
-                  class="avatar"
-                  alt="{{ post.author.username }} profile picture"
-                >
+                  <img
+                      src="{{ post.author.profileImage.url }}"
+                      class="avatar"
+                      alt="{{ post.author.username }} profile picture"
+                  >
+              {% else %}
+                  <span class="avatar" style="font-size: 2rem; display:inline-block; text-align:center; line-height:1; background:#e2e8f0; border-radius:50%;">
+                      🧛
+                  </span>
               {% endif %}
 
               <strong class="author">{{ post.author.username }}</strong>
-
-              <time class="timestamp" datetime="{{ post.created|date:'c' }}">
-                {{ post.created }}
-              </time>
-            </address>
+              <time class="timestamp" datetime="{{ post.created|date:'c' }}">{{ post.created }}</time>
+          </address>
 
             <!-- Actions -->
             {% if user.is_authenticated and user.id == post.author_id %}
@@ -194,14 +194,12 @@
   </section>
 </main>
 
-<!-- Footer -->
 <footer class="footer">
   <section class="footer-inner">
-    <p>© {{ now|default:"2026" }} SocialDistribution</p>
-    •
-    <p>Built with Django</p>
+    <p>© {{ now|default:"2026" }} SocialDistribution</p> • <p>Built with Django</p>
   </section>
 </footer>
+</body>
 
 <script>
   // JavaScript function to toggle the full content of a post when the "Read more" button is clicked
@@ -213,5 +211,4 @@
     btn.innerText = isExpanded ? "Show less" : "Read more"; // Change the button text based on whether the content is expanded or not
   }
 </script>
-</body>
 </html>
