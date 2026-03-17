@@ -175,59 +175,106 @@ If markdown then it will convert it to HTML.
 Finally, it will send the post content to the detail.html template for rendering.
 """
 def detail(request, post_id):
-    if request.user.is_superuser:
-        post = get_object_or_404(Post, id=post_id)
-    else:
-        post = get_object_or_404(Post, id=post_id, deleted=False)
+    post = None
 
-        # public everyone allowed
-        if post.visibility == Post.Visibility.PUBLIC: pass # allowing direct link to all public
-        # unlisted everyone allowed
-        elif post.visibility == Post.Visibility.UNLISTED: pass  # Anyone with link can see
-        # friends only allowed if user is author
-        elif post.visibility == Post.Visibility.FRIENDS:
-            if not request.user.is_authenticated:
-                return HttpResponseForbidden("Login required.")
-            # User Story 3: keep FRIENDS visibility, but let existing comment authors still view their own thread.
-            if (
-                request.user != post.author
-                and not _is_friend(request.user, post.author)
-                and not post.comments.filter(author=request.user).exists()
-            ):
-                return HttpResponseForbidden("Not allowed.")
-        # Safety fallback 
+    # --- Try local first ---
+    try:
+        if request.user.is_superuser:
+            post = Post.objects.get(id=post_id)
         else:
-            return HttpResponseForbidden("Invalid visibility.")
-    
-    rendered = None
-    if post.content_type == Post.ContentType.MARKDOWN:
-        rendered = _render_markdown(post.content)
+            post = Post.objects.get(id=post_id, deleted=False)
 
-    # Changed section: populate comment list + like state for detail template.
-    # User Story 3: enforce per-viewer visibility on comments for FRIENDS posts.
-    comments = _visible_comments_for_viewer(request.user, post)
-    comment_liked_ids = set()
-    post_liked_by_me = False
-    if request.user.is_authenticated:
-        comment_liked_ids = set(
-            Like.objects.filter(author=request.user, comment__post=post).values_list("comment_id", flat=True)
+    except Post.DoesNotExist:
+        post = None
+
+    # --- If local found ---
+    if post:
+        if not request.user.is_superuser:
+
+            if post.visibility == Post.Visibility.PUBLIC:
+                pass
+
+            elif post.visibility == Post.Visibility.UNLISTED:
+                pass
+
+            elif post.visibility == Post.Visibility.FRIENDS:
+                if not request.user.is_authenticated:
+                    return HttpResponseForbidden("Login required.")
+
+                if (
+                    request.user != post.author
+                    and not _is_friend(request.user, post.author)
+                    and not post.comments.filter(author=request.user).exists()
+                ):
+                    return HttpResponseForbidden("Not allowed.")
+
+            else:
+                return HttpResponseForbidden("Invalid visibility.")
+
+        rendered = None
+        if post.content_type == Post.ContentType.MARKDOWN:
+            rendered = _render_markdown(post.content)
+
+        comments = _visible_comments_for_viewer(request.user, post)
+
+        comment_liked_ids = set()
+        post_liked_by_me = False
+
+        if request.user.is_authenticated:
+            comment_liked_ids = set(
+                Like.objects.filter(
+                    author=request.user,
+                    comment__post=post
+                ).values_list("comment_id", flat=True)
+            )
+
+            post_liked_by_me = Like.objects.filter(
+                author=request.user,
+                post=post
+            ).exists()
+
+        for c in comments:
+            c.like_count = c.likes.count()
+            c.liked_by_me = c.id in comment_liked_ids
+
+        return render(
+            request,
+            "posts/detail.html",
+            {
+                "post": post,
+                "rendered": rendered,
+                "comments": comments,
+                "post_liked_by_me": post_liked_by_me,
+            },
         )
-        post_liked_by_me = Like.objects.filter(author=request.user, post=post).exists()
-    for c in comments:
-        c.like_count = c.likes.count()
-        c.liked_by_me = c.id in comment_liked_ids
 
-    
-    return render(
-        request,
-        "posts/detail.html",
-        {
-            "post": post,
-            "rendered": rendered,
-            "comments": comments,
-            "post_liked_by_me": post_liked_by_me,
-        },
-    )
+    # --- Try remote nodes ---
+    for node_url in settings.REMOTE_NODES:
+        try:
+            r = requests.get(f"{node_url}/remote-posts/", timeout=3)
+
+            if r.status_code == 200:
+                remote_posts = r.json()
+
+                for rp in remote_posts:
+                    if str(rp.get("id")) == str(post_id):
+                        rp["remote"] = True
+
+                        return render(
+                            request,
+                            "posts/detail.html",
+                            {
+                                "post": rp,
+                                "rendered": rp.get("content"),
+                                "comments": [],
+                                "post_liked_by_me": False,
+                            },
+                        )
+
+        except requests.RequestException:
+            continue
+
+    raise Http404("Post not found")
 
 
 @login_required
