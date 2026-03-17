@@ -132,8 +132,10 @@ def stream(request):
     # --- MERGE AND SORT ---
     all_posts = list(posts)  # local posts
     all_posts.extend(remote_posts)  # add remote posts
-    all_posts.sort(key=lambda x: getattr(x, "created", x.get("created", datetime.min)), reverse=True)
-
+    all_posts.sort(
+        key=lambda x: x.created if hasattr(x, "created") else datetime.fromisoformat(x.get("created", datetime.min.isoformat())),
+        reverse=True
+    )
     return render(
         request,
         "posts/stream.html",
