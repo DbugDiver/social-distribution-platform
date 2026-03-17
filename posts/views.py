@@ -68,7 +68,8 @@ This function handle the logic for displaying the stream of posts.
 It will GET the posts that are not deleted, ordered by created time (newest first).
 Then it will loop through the posts. If the content type is markdown then convert it to HTML.
 Finally, it will send the posts to the stream.html template for rendering.
-"""@login_required
+"""
+@login_required
 def stream(request):
     user = request.user
 
