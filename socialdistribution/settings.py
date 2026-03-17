@@ -21,10 +21,12 @@ SECRET_KEY = os.environ.get(
 )
 
 # List of other nodes your app can talk to
-REMOTE_NODES = os.environ.get(
-    "REMOTE_NODES",
-    "https://honeydewtest-59b6356736d4.herokuapp.com,https://socialhoneydew-a63ad12e8e99.herokuapp.com"
-).split(",")
+REMOTE_NODES = [
+    node.rstrip("/") for node in os.environ.get(
+        "REMOTE_NODES",
+        "https://honeydewtest-59b6356736d4.herokuapp.com,https://socialhoneydew-a63ad12e8e99.herokuapp.com"
+    ).split(",")
+]
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 

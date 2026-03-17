@@ -68,14 +68,14 @@ This function handle the logic for displaying the stream of posts.
 It will GET the posts that are not deleted, ordered by created time (newest first).
 Then it will loop through the posts. If the content type is markdown then convert it to HTML.
 Finally, it will send the posts to the stream.html template for rendering.
-"""
-@login_required
+"""@login_required
 def stream(request):
     user = request.user
 
     # --- LOCAL POSTS ---
     following_ids = Follower.objects.filter(
-        follower=user, status="accepted"
+        follower=user,
+        status="accepted",
     ).values_list("following_id", flat=True)
 
     local_posts = (
@@ -92,6 +92,7 @@ def stream(request):
         .order_by("-created")
     )
 
+    # Prepare likes for the current user
     post_liked_ids = set(
         Like.objects.filter(author=user, post__in=local_posts).values_list("post_id", flat=True)
     )
@@ -100,7 +101,10 @@ def stream(request):
     )
 
     for p in local_posts:
-        p.rendered = md.markdown(p.content or "", extensions=["extra"]) if p.content_type == Post.ContentType.MARKDOWN else None
+        if p.content_type == Post.ContentType.MARKDOWN:
+            p.rendered = md.markdown(p.content or "", extensions=["extra"])
+        else:
+            p.rendered = None
         p.like_count = p.likes.count()
         p.comment_count = p.comments.count()
         p.liked_by_me = p.id in post_liked_ids
@@ -110,52 +114,54 @@ def stream(request):
             c.liked_by_me = c.id in comment_liked_ids
 
     # --- REMOTE POSTS ---
-    RemotePost = namedtuple("RemotePost", [
-        "id", "author", "content", "created", "rendered",
-        "like_count", "comment_count", "liked_by_me", "comment_list", "remote", "node_url"
-    ])
-
     from django.conf import settings
     import requests
-    remote_posts = []
+    from datetime import datetime
 
+    class RemotePost:
+        """Wrap remote post JSON to behave like a Post object for the template"""
+        def __init__(self, data, node_url):
+            self.__dict__.update(data)
+            self.remote = True
+            self.node_url = node_url
+            self.rendered = data.get("content", "")
+            self.like_count = data.get("like_count", 0)
+            self.comment_count = len(data.get("comments", []))
+            self.liked_by_me = False
+            self.comment_list = data.get("comments", [])[:3]
+            # Parse created string into datetime
+            created_str = data.get("created")
+            try:
+                self.created = datetime.fromisoformat(created_str) if created_str else datetime.min
+            except ValueError:
+                self.created = datetime.min
+            # author dict is expected from remote node JSON
+            self.author = type("AuthorObj", (), data.get("author", {}))
+
+    remote_posts = []
     for node_url in getattr(settings, "REMOTE_NODES", []):
+        node_url = node_url.strip()
         try:
             r = requests.get(f"{node_url}/node/api/posts/", timeout=3)
             if r.status_code == 200:
                 for rp in r.json():
-                    created_dt = datetime.fromisoformat(rp.get("created", datetime.min.isoformat()))
-                    # Minimal author object for template
-                    author_obj = type("AuthorStub", (), {
-                        "username": rp.get("author", {}).get("username", "remote"),
-                        "displayName": rp.get("author", {}).get("displayName", "Remote User")
-                    })()
-                    remote_posts.append(
-                        RemotePost(
-                            id=rp.get("id"),
-                            author=author_obj,
-                            content=rp.get("content", ""),
-                            created=created_dt,
-                            rendered=md.markdown(rp.get("content", "")) if rp.get("contentType")=="text/markdown" else rp.get("content",""),
-                            like_count=rp.get("likeCount",0),
-                            comment_count=len(rp.get("comments", [])),
-                            liked_by_me=False,
-                            comment_list=rp.get("comments", [])[:3],
-                            remote=True,
-                            node_url=node_url
-                        )
-                    )
+                    remote_posts.append(RemotePost(rp, node_url))
         except requests.RequestException:
             continue
 
     # --- MERGE AND SORT ---
     all_posts = list(local_posts) + remote_posts
-    all_posts.sort(key=lambda x: x.created, reverse=True)
+    all_posts.sort(key=lambda x: getattr(x, "created", datetime.min), reverse=True)
 
-    return render(request, "posts/stream.html", {
-        "posts": all_posts,
-        "feed_title": "Public Stream",
-    })
+    return render(
+        request,
+        "posts/stream.html",
+        {
+            "posts": all_posts,
+            "feed_title": "Public Stream",
+        },
+    )
+    
 """
 This function handle the logic for displaying the details of a single post.
 It will GET a single post by its ID, but only if it is not deleted. If it does not exist, return a 404 error page.
