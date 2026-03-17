@@ -68,14 +68,16 @@ It will GET the posts that are not deleted, ordered by created time (newest firs
 Then it will loop through the posts. If the content type is markdown then convert it to HTML.
 Finally, it will send the posts to the stream.html template for rendering.
 """
-@login_required   # Posts only stream when account exists and logged in
+@login_required
 def stream(request):
-    user = request.user     #get current user
-    # Changed section: stream includes counts and comment preview metadata for templates.
+    user = request.user
+
+    # --- LOCAL POSTS ---
     following_ids = Follower.objects.filter(
         follower=user,
         status="accepted",
     ).values_list("following_id", flat=True)
+
     posts = (
         Post.objects.filter(deleted=False)
         .filter(
@@ -89,12 +91,14 @@ def stream(request):
         .prefetch_related("comments__author", "comments__likes", "likes")
         .order_by("-created")
     )
+
     post_liked_ids = set(
         Like.objects.filter(author=user, post__in=posts).values_list("post_id", flat=True)
     )
     comment_liked_ids = set(
         Like.objects.filter(author=user, comment__post__in=posts).values_list("comment_id", flat=True)
     )
+
     for p in posts:
         if p.content_type == Post.ContentType.MARKDOWN:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
@@ -103,19 +107,41 @@ def stream(request):
         p.like_count = p.likes.count()
         p.comment_count = p.comments.count()
         p.liked_by_me = p.id in post_liked_ids
-        # User Story 3: preview only comments visible to this viewer.
         p.comment_list = list(_visible_comments_for_viewer(user, p)[:3])
         for c in p.comment_list:
             c.like_count = c.likes.count()
             c.liked_by_me = c.id in comment_liked_ids
+
+    # --- REMOTE POSTS ---
+    from django.conf import settings
+    import requests
+
+    remote_posts = []
+    for node_url in getattr(settings, "REMOTE_NODES", []):
+        try:
+            r = requests.get(f"{node_url}/node/api/posts/", timeout=3)
+            if r.status_code == 200:
+                for rp in r.json():
+                    # Minimal info needed for template: mark as remote
+                    rp["remote"] = True
+                    rp["node_url"] = node_url
+                    remote_posts.append(rp)
+        except requests.RequestException:
+            continue
+
+    # --- MERGE AND SORT ---
+    all_posts = list(posts)  # local posts
+    all_posts.extend(remote_posts)  # add remote posts
+    all_posts.sort(key=lambda x: getattr(x, "created", x.get("created", datetime.min)), reverse=True)
+
     return render(
         request,
         "posts/stream.html",
         {
-            "posts": posts,
+            "posts": all_posts,
             "feed_title": "Public Stream",
         },
-    ) # Send the posts to the stream.html template
+    )
 
 """
 This function handle the logic for displaying the details of a single post.
