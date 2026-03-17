@@ -4,6 +4,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from collections import namedtuple
 import markdown as md
+from django.conf import settings
+import requests
+from datetime import datetime
 
 from authors.models import Author, Follower
 from .forms import PostForm
@@ -115,10 +118,6 @@ def stream(request):
             c.liked_by_me = c.id in comment_liked_ids
 
     # --- REMOTE POSTS ---
-    from django.conf import settings
-    import requests
-    from datetime import datetime
-
     class RemotePost:
         """Wrap remote post JSON to behave like a Post object for the template"""
         def __init__(self, data, node_url):
