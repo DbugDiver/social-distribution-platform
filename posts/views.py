@@ -139,11 +139,12 @@ def stream(request):
             # author dict is expected from remote node JSON
             self.author = type("AuthorObj", (), data.get("author", {}))
 
+    current_node = request.build_absolute_uri("/").rstrip("/")
     remote_posts = []
     for node_url in getattr(settings, "REMOTE_NODES", []):
-        node_url = node_url.strip()
+        node_url = node_url.strip("/")
         
-        if node_url == settings.SITE_URL:
+        if node_url == current_node:
             continue
     
         try:
