@@ -142,6 +142,10 @@ def stream(request):
     remote_posts = []
     for node_url in getattr(settings, "REMOTE_NODES", []):
         node_url = node_url.strip()
+        
+        if node_url == settings.SITE_URL:
+            continue
+    
         try:
             r = requests.get(f"{node_url}/remote-posts/", timeout=3)
             if r.status_code == 200:
