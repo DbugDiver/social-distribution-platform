@@ -2,6 +2,7 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from collections import namedtuple
 import markdown as md
 
 from authors.models import Author, Follower
@@ -74,11 +75,10 @@ def stream(request):
 
     # --- LOCAL POSTS ---
     following_ids = Follower.objects.filter(
-        follower=user,
-        status="accepted",
+        follower=user, status="accepted"
     ).values_list("following_id", flat=True)
 
-    posts = (
+    local_posts = (
         Post.objects.filter(deleted=False)
         .filter(
             Q(author=user)
@@ -93,17 +93,14 @@ def stream(request):
     )
 
     post_liked_ids = set(
-        Like.objects.filter(author=user, post__in=posts).values_list("post_id", flat=True)
+        Like.objects.filter(author=user, post__in=local_posts).values_list("post_id", flat=True)
     )
     comment_liked_ids = set(
-        Like.objects.filter(author=user, comment__post__in=posts).values_list("comment_id", flat=True)
+        Like.objects.filter(author=user, comment__post__in=local_posts).values_list("comment_id", flat=True)
     )
 
-    for p in posts:
-        if p.content_type == Post.ContentType.MARKDOWN:
-            p.rendered = md.markdown(p.content or "", extensions=["extra"])
-        else:
-            p.rendered = None
+    for p in local_posts:
+        p.rendered = md.markdown(p.content or "", extensions=["extra"]) if p.content_type == Post.ContentType.MARKDOWN else None
         p.like_count = p.likes.count()
         p.comment_count = p.comments.count()
         p.liked_by_me = p.id in post_liked_ids
@@ -113,38 +110,52 @@ def stream(request):
             c.liked_by_me = c.id in comment_liked_ids
 
     # --- REMOTE POSTS ---
+    RemotePost = namedtuple("RemotePost", [
+        "id", "author", "content", "created", "rendered",
+        "like_count", "comment_count", "liked_by_me", "comment_list", "remote", "node_url"
+    ])
+
     from django.conf import settings
     import requests
-
     remote_posts = []
+
     for node_url in getattr(settings, "REMOTE_NODES", []):
         try:
             r = requests.get(f"{node_url}/node/api/posts/", timeout=3)
             if r.status_code == 200:
                 for rp in r.json():
-                    # Minimal info needed for template: mark as remote
-                    rp["remote"] = True
-                    rp["node_url"] = node_url
-                    remote_posts.append(rp)
+                    created_dt = datetime.fromisoformat(rp.get("created", datetime.min.isoformat()))
+                    # Minimal author object for template
+                    author_obj = type("AuthorStub", (), {
+                        "username": rp.get("author", {}).get("username", "remote"),
+                        "displayName": rp.get("author", {}).get("displayName", "Remote User")
+                    })()
+                    remote_posts.append(
+                        RemotePost(
+                            id=rp.get("id"),
+                            author=author_obj,
+                            content=rp.get("content", ""),
+                            created=created_dt,
+                            rendered=md.markdown(rp.get("content", "")) if rp.get("contentType")=="text/markdown" else rp.get("content",""),
+                            like_count=rp.get("likeCount",0),
+                            comment_count=len(rp.get("comments", [])),
+                            liked_by_me=False,
+                            comment_list=rp.get("comments", [])[:3],
+                            remote=True,
+                            node_url=node_url
+                        )
+                    )
         except requests.RequestException:
             continue
 
     # --- MERGE AND SORT ---
-    all_posts = list(posts)  # local posts
-    all_posts.extend(remote_posts)  # add remote posts
-    all_posts.sort(
-        key=lambda x: x.created if hasattr(x, "created") else datetime.fromisoformat(x.get("created", datetime.min.isoformat())),
-        reverse=True
-    )
-    return render(
-        request,
-        "posts/stream.html",
-        {
-            "posts": all_posts,
-            "feed_title": "Public Stream",
-        },
-    )
+    all_posts = list(local_posts) + remote_posts
+    all_posts.sort(key=lambda x: x.created, reverse=True)
 
+    return render(request, "posts/stream.html", {
+        "posts": all_posts,
+        "feed_title": "Public Stream",
+    })
 """
 This function handle the logic for displaying the details of a single post.
 It will GET a single post by its ID, but only if it is not deleted. If it does not exist, return a 404 error page.
