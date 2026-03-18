@@ -2,13 +2,8 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from collections import namedtuple
 import markdown as md
-from django.conf import settings
-import requests
-from datetime import datetime
-import uuid
-from django.utils.dateparse import parse_datetime
+
 from authors.models import Author, Follower
 from .forms import PostForm
 from .models import Comment, Like, Post
@@ -19,6 +14,7 @@ Change citation (local project work):
 - Added comments/likes web interaction flow (stream + detail + POST handlers).
 - Added visibility/permission helpers for safe like/comment actions.
 """
+
 
 try:
     import markdown
@@ -72,118 +68,46 @@ It will GET the posts that are not deleted, ordered by created time (newest firs
 Then it will loop through the posts. If the content type is markdown then convert it to HTML.
 Finally, it will send the posts to the stream.html template for rendering.
 """
-@login_required
+@login_required   # Posts only stream when account exists and logged in
 def stream(request):
-    user = request.user
-
-    # --- SYNC REMOTE POSTS INTO DB ---
-    for node_url in getattr(settings, "REMOTE_NODES", []):
-        try:
-            r = requests.get(f"{node_url}/remote-posts/", timeout=3)
-            if r.status_code != 200:
-                continue
-
-            for rp in r.json():
-                try:
-                    # --- Process remote author ---
-                    author_data = rp.get("author", {})
-                    author_id = author_data.get("id") or str(uuid.uuid4())
-                    author, created = Author.objects.update_or_create(
-                        remote_id=author_id,
-                        defaults={
-                            "displayName": author_data.get("username", "Unknown"),
-                            "host": node_url,
-                            "is_remote": True,
-                            "username": f"remote_{uuid.uuid4()}",
-                        },
-                    )
-                    if created:
-                        author.set_unusable_password()
-                        author.save()
-
-                    # --- Process remote post ---
-                    post_id = rp.get("id") or str(uuid.uuid4())
-                    created_time = parse_datetime(rp.get("created"))
-                    defaults = {
-                        "author": author,
-                        "title": rp.get("title", ""),
-                        "content": rp.get("content", ""),
-                        "content_type": rp.get("content_type", "text/plain"),
-                        "visibility": rp.get("visibility", "PUBLIC"),
-                        "is_remote": True,
-                        "node_url": node_url,
-                    }
-                    if created_time:
-                        defaults["created"] = created_time
-
-                    post, _ = Post.objects.update_or_create(remote_id=post_id, defaults=defaults)
-
-                    # --- Process remote comments ---
-                    for c in rp.get("comments", []):
-                        comment_author_data = c.get("author", {})
-                        comment_author_id = comment_author_data.get("id") or str(uuid.uuid4())
-                        comment_author, _ = Author.objects.update_or_create(
-                            remote_id=comment_author_id,
-                            defaults={
-                                "displayName": comment_author_data.get("username", "Unknown"),
-                                "host": node_url,
-                                "is_remote": True,
-                                "username": f"remote_{uuid.uuid4()}",
-                            },
-                        )
-
-                        Comment.objects.update_or_create(
-                            remote_id=c.get("id") or str(uuid.uuid4()),
-                            defaults={
-                                "post": post,
-                                "author": comment_author,
-                                "comment": c.get("comment") or "",
-                            },
-                        )
-
-                except Exception as e:
-                    # Skip malformed remote posts/comments
-                    print(f"Skipping remote post due to error: {e}")
-                    continue
-
-        except requests.RequestException:
-            continue
-
-    # --- QUERY POSTS FOR STREAM ---
+    user = request.user     #get current user
+    # Changed section: stream includes counts and comment preview metadata for templates.
     following_ids = Follower.objects.filter(
-        follower=user, status="accepted"
+        follower=user,
+        status="accepted",
     ).values_list("following_id", flat=True)
-
-    posts = Post.objects.filter(deleted=False).filter(
-        Q(author=user) |  # own posts
-        Q(visibility=Post.Visibility.PUBLIC) |  # all public posts
-        Q(author__is_remote=True, visibility=Post.Visibility.PUBLIC) |  # remote posts
-        Q(author_id__in=following_ids, visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED])
-    ).prefetch_related("comments__author", "comments__likes", "likes").order_by("-created")
-
-    # --- Likes info ---
+    posts = (
+        Post.objects.filter(deleted=False)
+        .filter(
+            Q(author=user)
+            | Q(visibility=Post.Visibility.PUBLIC)
+            | Q(
+                author_id__in=following_ids,
+                visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
+            )
+        )
+        .prefetch_related("comments__author", "comments__likes", "likes")
+        .order_by("-created")
+    )
     post_liked_ids = set(
         Like.objects.filter(author=user, post__in=posts).values_list("post_id", flat=True)
     )
     comment_liked_ids = set(
         Like.objects.filter(author=user, comment__post__in=posts).values_list("comment_id", flat=True)
     )
-
     for p in posts:
         if p.content_type == Post.ContentType.MARKDOWN:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
         else:
             p.rendered = None
-
         p.like_count = p.likes.count()
         p.comment_count = p.comments.count()
         p.liked_by_me = p.id in post_liked_ids
-
+        # User Story 3: preview only comments visible to this viewer.
         p.comment_list = list(_visible_comments_for_viewer(user, p)[:3])
         for c in p.comment_list:
             c.like_count = c.likes.count()
             c.liked_by_me = c.id in comment_liked_ids
-
     return render(
         request,
         "posts/stream.html",
@@ -191,7 +115,8 @@ def stream(request):
             "posts": posts,
             "feed_title": "Public Stream",
         },
-    )
+    ) # Send the posts to the stream.html template
+
 """
 This function handle the logic for displaying the details of a single post.
 It will GET a single post by its ID, but only if it is not deleted. If it does not exist, return a 404 error page.
@@ -199,15 +124,37 @@ If markdown then it will convert it to HTML.
 Finally, it will send the post content to the detail.html template for rendering.
 """
 def detail(request, post_id):
-    post = get_object_or_404(Post, id=post_id, deleted=False)
+    if request.user.is_superuser:
+        post = get_object_or_404(Post, id=post_id)
+    else:
+        post = get_object_or_404(Post, id=post_id, deleted=False)
 
-    # Permission check
-    if not _can_interact_with_post(request.user, post):
-        return HttpResponseForbidden("Not allowed.")
+        # public everyone allowed
+        if post.visibility == Post.Visibility.PUBLIC: pass # allowing direct link to all public
+        # unlisted everyone allowed
+        elif post.visibility == Post.Visibility.UNLISTED: pass  # Anyone with link can see
+        # friends only allowed if user is author
+        elif post.visibility == Post.Visibility.FRIENDS:
+            if not request.user.is_authenticated:
+                return HttpResponseForbidden("Login required.")
+            # User Story 3: keep FRIENDS visibility, but let existing comment authors still view their own thread.
+            if (
+                request.user != post.author
+                and not _is_friend(request.user, post.author)
+                and not post.comments.filter(author=request.user).exists()
+            ):
+                return HttpResponseForbidden("Not allowed.")
+        # Safety fallback 
+        else:
+            return HttpResponseForbidden("Invalid visibility.")
+    
+    rendered = None
+    if post.content_type == Post.ContentType.MARKDOWN:
+        rendered = _render_markdown(post.content)
 
-    rendered = _render_markdown(post.content) if post.content_type == Post.ContentType.MARKDOWN else None
+    # Changed section: populate comment list + like state for detail template.
+    # User Story 3: enforce per-viewer visibility on comments for FRIENDS posts.
     comments = _visible_comments_for_viewer(request.user, post)
-
     comment_liked_ids = set()
     post_liked_by_me = False
     if request.user.is_authenticated:
@@ -215,11 +162,11 @@ def detail(request, post_id):
             Like.objects.filter(author=request.user, comment__post=post).values_list("comment_id", flat=True)
         )
         post_liked_by_me = Like.objects.filter(author=request.user, post=post).exists()
-
     for c in comments:
         c.like_count = c.likes.count()
         c.liked_by_me = c.id in comment_liked_ids
 
+    
     return render(
         request,
         "posts/detail.html",
@@ -230,6 +177,7 @@ def detail(request, post_id):
             "post_liked_by_me": post_liked_by_me,
         },
     )
+
 
 @login_required
 def add_comment(request, post_id):
