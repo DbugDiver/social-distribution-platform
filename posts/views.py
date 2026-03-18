@@ -118,51 +118,25 @@ def stream(request):
 
     # --- REMOTE POSTS ---
     class RemotePost:
-    """Wrap remote post JSON to behave like a Post object for the template"""
+        """Wrap remote post JSON to behave like a Post object for the template"""
         def __init__(self, data, node_url):
-            # Copy data
-            self.id = data.get("id")
-            self.title = data.get("title")
-            self.content = data.get("content")
-            self.content_type = data.get("content_type")
-            self.visibility = data.get("visibility")
-            self.image = data.get("image")  # string URL from remote
-            self.rendered = md.markdown(self.content or "", extensions=["extra"]) if self.content_type == "text/markdown" else self.content
+            self.__dict__.update(data)
+            self.remote = True
+            self.node_url = node_url
+            self.rendered = data.get("content", "")
             self.like_count = data.get("like_count", 0)
             self.comment_count = len(data.get("comments", []))
             self.liked_by_me = False
-            self.remote = True
-            self.node_url = node_url
-
+            self.comment_list = data.get("comments", [])[:3]
             # Parse created string into datetime
             created_str = data.get("created")
             try:
                 self.created = datetime.fromisoformat(created_str) if created_str else datetime.min
             except ValueError:
                 self.created = datetime.min
-
-            # Wrap author dict into an object that template can use
-            author_data = data.get("author", {})
-            self.author = type("AuthorObj", (), {
-                "username": author_data.get("username", "Unknown"),
-                "profileImage": author_data.get("profileImage", None)  # string URL or None
-            })
-
-            # Wrap comments into objects that template can use
-            self.comment_list = []
-            for c in data.get("comments", [])[:3]:
-                comment_author = type("AuthorObj", (), {
-                    "username": c.get("author", {}).get("username", "Unknown")
-                })
-                comment_obj = type("CommentObj", (), {
-                    "id": c.get("id"),
-                    "comment": c.get("comment"),
-                    "author": comment_author,
-                    "like_count": c.get("like_count", 0),
-                    "liked_by_me": False
-                })
-                self.comment_list.append(comment_obj)
-
+            # author dict is expected from remote node JSON
+            self.author = type("AuthorObj", (), data.get("author", {}))
+            
     current_node = request.build_absolute_uri("/").rstrip("/")
     remote_posts = []
     for node_url in getattr(settings, "REMOTE_NODES", []):
