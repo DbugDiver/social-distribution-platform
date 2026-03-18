@@ -118,24 +118,50 @@ def stream(request):
 
     # --- REMOTE POSTS ---
     class RemotePost:
-        """Wrap remote post JSON to behave like a Post object for the template"""
-        def __init__(self, data, node_url):
-            self.__dict__.update(data)
-            self.remote = True
-            self.node_url = node_url
-            self.rendered = data.get("content", "")
-            self.like_count = data.get("like_count", 0)
-            self.comment_count = len(data.get("comments", []))
-            self.liked_by_me = False
-            self.comment_list = data.get("comments", [])[:3]
-            # Parse created string into datetime
-            created_str = data.get("created")
-            try:
-                self.created = datetime.fromisoformat(created_str) if created_str else datetime.min
-            except ValueError:
-                self.created = datetime.min
-            # author dict is expected from remote node JSON
-            self.author = type("AuthorObj", (), data.get("author", {}))
+    """Wrap remote post JSON to behave like a Post object for the template"""
+    def __init__(self, data, node_url):
+        # Copy data
+        self.id = data.get("id")
+        self.title = data.get("title")
+        self.content = data.get("content")
+        self.content_type = data.get("content_type")
+        self.visibility = data.get("visibility")
+        self.image = data.get("image")  # string URL from remote
+        self.rendered = md.markdown(self.content or "", extensions=["extra"]) if self.content_type == "text/markdown" else self.content
+        self.like_count = data.get("like_count", 0)
+        self.comment_count = len(data.get("comments", []))
+        self.liked_by_me = False
+        self.remote = True
+        self.node_url = node_url
+
+        # Parse created string into datetime
+        created_str = data.get("created")
+        try:
+            self.created = datetime.fromisoformat(created_str) if created_str else datetime.min
+        except ValueError:
+            self.created = datetime.min
+
+        # Wrap author dict into an object that template can use
+        author_data = data.get("author", {})
+        self.author = type("AuthorObj", (), {
+            "username": author_data.get("username", "Unknown"),
+            "profileImage": author_data.get("profileImage", None)  # string URL or None
+        })
+
+        # Wrap comments into objects that template can use
+        self.comment_list = []
+        for c in data.get("comments", [])[:3]:
+            comment_author = type("AuthorObj", (), {
+                "username": c.get("author", {}).get("username", "Unknown")
+            })
+            comment_obj = type("CommentObj", (), {
+                "id": c.get("id"),
+                "comment": c.get("comment"),
+                "author": comment_author,
+                "like_count": c.get("like_count", 0),
+                "liked_by_me": False
+            })
+            self.comment_list.append(comment_obj)
 
     current_node = request.build_absolute_uri("/").rstrip("/")
     remote_posts = []
@@ -172,7 +198,12 @@ It will GET a single post by its ID, but only if it is not deleted. If it does n
 If markdown then it will convert it to HTML.
 Finally, it will send the post content to the detail.html template for rendering.
 """
+@login_required
 def detail(request, post_id):
+    """
+    Display the details of a single post, local or remote.
+    Handles visibility, Markdown rendering, comments, likes, and images.
+    """
     post = None
 
     # --- Try local first ---
@@ -181,55 +212,46 @@ def detail(request, post_id):
             post = Post.objects.get(id=post_id)
         else:
             post = Post.objects.get(id=post_id, deleted=False)
-
     except Post.DoesNotExist:
         post = None
 
-    # --- If local found ---
     if post:
+        # --- Visibility checks ---
         if not request.user.is_superuser:
-
             if post.visibility == Post.Visibility.PUBLIC:
                 pass
-
             elif post.visibility == Post.Visibility.UNLISTED:
                 pass
-
             elif post.visibility == Post.Visibility.FRIENDS:
                 if not request.user.is_authenticated:
                     return HttpResponseForbidden("Login required.")
-
+                # FRIENDS: allow if friend, author, or has commented
                 if (
                     request.user != post.author
                     and not _is_friend(request.user, post.author)
                     and not post.comments.filter(author=request.user).exists()
                 ):
                     return HttpResponseForbidden("Not allowed.")
-
             else:
                 return HttpResponseForbidden("Invalid visibility.")
 
-        rendered = None
-        if post.content_type == Post.ContentType.MARKDOWN:
-            rendered = _render_markdown(post.content)
+        # --- Render Markdown ---
+        rendered = (
+            md.markdown(post.content or "", extensions=["extra"])
+            if post.content_type == Post.ContentType.MARKDOWN
+            else post.content
+        )
 
+        # --- Comments and likes ---
         comments = _visible_comments_for_viewer(request.user, post)
-
         comment_liked_ids = set()
         post_liked_by_me = False
-
         if request.user.is_authenticated:
             comment_liked_ids = set(
-                Like.objects.filter(
-                    author=request.user,
-                    comment__post=post
-                ).values_list("comment_id", flat=True)
+                Like.objects.filter(author=request.user, comment__post=post)
+                .values_list("comment_id", flat=True)
             )
-
-            post_liked_by_me = Like.objects.filter(
-                author=request.user,
-                post=post
-            ).exists()
+            post_liked_by_me = Like.objects.filter(author=request.user, post=post).exists()
 
         for c in comments:
             c.like_count = c.likes.count()
@@ -247,33 +269,95 @@ def detail(request, post_id):
         )
 
     # --- Try remote nodes ---
-    for node_url in settings.REMOTE_NODES:
+    class RemotePostDetail:
+        """Wrap a remote post JSON for detail view"""
+        def __init__(self, data, node_url):
+            self.id = data.get("id")
+            self.title = data.get("title")
+            self.content = data.get("content")
+            self.content_type = data.get("content_type")
+            self.visibility = data.get("visibility")
+            self.image = data.get("image")  # string URL
+            self.rendered = (
+                md.markdown(self.content or "", extensions=["extra"])
+                if self.content_type == "text/markdown"
+                else self.content
+            )
+            self.like_count = data.get("like_count", 0)
+            self.comment_count = len(data.get("comments", []))
+            self.liked_by_me = False
+            self.remote = True
+            self.node_url = node_url
+
+            # Author
+            author_data = data.get("author", {})
+            self.author = type(
+                "AuthorObj",
+                (),
+                {
+                    "username": author_data.get("username", "Unknown"),
+                    "profileImage": author_data.get("profileImage", None),
+                },
+            )
+
+            # Comments
+            self.comment_list = []
+            for c in data.get("comments", []):
+                comment_author = type(
+                    "AuthorObj",
+                    (),
+                    {"username": c.get("author", {}).get("username", "Unknown")},
+                )
+                comment_obj = type(
+                    "CommentObj",
+                    (),
+                    {
+                        "id": c.get("id"),
+                        "comment": c.get("comment"),
+                        "author": comment_author,
+                        "like_count": c.get("like_count", 0),
+                        "liked_by_me": False,
+                    },
+                )
+                self.comment_list.append(comment_obj)
+
+    current_node = request.build_absolute_uri("/").rstrip("/")
+    for node_url in getattr(settings, "REMOTE_NODES", []):
+        node_url = node_url.rstrip("/")
+        if node_url == current_node:
+            continue
+
         try:
             r = requests.get(f"{node_url}/remote-posts/", timeout=3)
-
             if r.status_code == 200:
                 remote_posts = r.json()
-
                 for rp in remote_posts:
                     if str(rp.get("id")) == str(post_id):
-                        rp["remote"] = True
+                        remote_post = RemotePostDetail(rp, node_url)
+
+                        # For remote posts, visibility rules can only be applied loosely
+                        # (e.g., PUBLIC / UNLISTED)
+                        if remote_post.visibility not in [
+                            "PUBLIC",
+                            "UNLISTED",
+                        ]:
+                            # Only allow friends posts if they are PUBLIC for cross-node
+                            return HttpResponseForbidden("Not allowed.")
 
                         return render(
                             request,
                             "posts/detail.html",
                             {
-                                "post": rp,
-                                "rendered": rp.get("content"),
-                                "comments": [],
-                                "post_liked_by_me": False,
+                                "post": remote_post,
+                                "rendered": remote_post.rendered,
+                                "comments": remote_post.comment_list,
+                                "post_liked_by_me": remote_post.liked_by_me,
                             },
                         )
 
         except requests.RequestException:
             continue
-
     raise Http404("Post not found")
-
 
 @login_required
 def add_comment(request, post_id):
