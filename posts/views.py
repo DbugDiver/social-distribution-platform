@@ -149,7 +149,16 @@ def stream(request):
             # Wrap comments
             self.comment_list = []
             for c in data.get("comments", [])[:3]:
-                comment_author = type("AuthorObj", (), {"username": c.get("author", {}).get("username", "Unknown")})
+                # Safely get author data
+                comment_author_data = c.get("author", {})
+                if isinstance(comment_author_data, str):
+                    # If it's just a username string, wrap it in a dict
+                    comment_author_data = {"username": comment_author_data}
+
+                comment_author = type("AuthorObj", (), {
+                    "username": comment_author_data.get("username", "Unknown")
+                })
+
                 comment_obj = type("CommentObj", (), {
                     "id": c.get("id"),
                     "comment": c.get("comment"),
@@ -157,6 +166,7 @@ def stream(request):
                     "like_count": c.get("like_count", 0),
                     "liked_by_me": False
                 })
+
                 self.comment_list.append(comment_obj)
 
     current_node = request.build_absolute_uri("/").rstrip("/")
