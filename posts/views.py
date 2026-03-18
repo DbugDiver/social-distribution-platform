@@ -19,7 +19,6 @@ Change citation (local project work):
 - Added visibility/permission helpers for safe like/comment actions.
 """
 
-
 try:
     import markdown
 except ImportError:
