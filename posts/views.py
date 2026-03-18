@@ -76,8 +76,8 @@ def stream(request):
     user = request.user
 
     # --- SYNC REMOTE POSTS INTO DB ---
-    from django.utils.dateparse import parse_datetime
     import uuid
+    from django.utils.dateparse import parse_datetime
 
     for node_url in getattr(settings, "REMOTE_NODES", []):
         try:
@@ -88,6 +88,7 @@ def stream(request):
             for rp in r.json():
                 author_data = rp.get("author", {})
 
+                # Use the actual remote_id from the author data
                 author, _ = Author.objects.update_or_create(
                     remote_id=author_data.get("id"),
                     defaults={
@@ -100,6 +101,7 @@ def stream(request):
                 author.set_unusable_password()
                 author.save()
 
+                # Use the remote post ID
                 post, _ = Post.objects.update_or_create(
                     remote_id=rp.get("id"),
                     defaults={
@@ -110,7 +112,7 @@ def stream(request):
                         "visibility": rp.get("visibility", "PUBLIC"),
                         "is_remote": True,
                         "node_url": node_url,
-                        "created": parse_datetime(rp.get("created")),
+                        "created": parse_datetime(rp.get("created")) or None,
                     },
                 )
 
