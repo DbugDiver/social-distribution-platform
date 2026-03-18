@@ -19,7 +19,7 @@ urlpatterns = [
     path("<uuid:post_id>/edit/", views.edit, name="edit"),
     path("<uuid:author_id>/posts/", views.author_posts, name="author-posts"),
     path("<uuid:post_id>/delete/", views.delete, name="delete"),
-    path("remote-posts/", api_views.remote_posts_api, name="remote-posts"),  # NEW
+    path("remote-posts/", api_views.remote_posts_api, name="remote-posts"),  
 
 
     # Changed section: API routes for entries/comments/likes (Part 1 local node scope).
