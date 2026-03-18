@@ -145,18 +145,13 @@ def stream(request):
         status="accepted",
     ).values_list("following_id", flat=True)
 
-    posts = (
-        Post.objects.filter(deleted=False)
-        .filter(
-            Q(author=user)
-            | Q(visibility=Post.Visibility.PUBLIC)
-            | Q(author__is_remote=True, visibility=Post.Visibility.PUBLIC)
-            | Q(author_id__in=following_ids, visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED])
-        )
-        .prefetch_related("comments__author", "comments__likes", "likes")
-        .order_by("-created")
-    )
-
+    posts = Post.objects.filter(deleted=False).filter(
+        Q(author=user) |  # your own posts
+        Q(visibility=Post.Visibility.PUBLIC) |  # all local PUBLIC posts
+        Q(author__is_remote=True, visibility=Post.Visibility.PUBLIC) |  # all remote PUBLIC posts
+        Q(author_id__in=following_ids, visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED])  # friends/unlisted
+    ).prefetch_related("comments__author", "comments__likes", "likes").order_by("-created")
+    
     post_liked_ids = set(
         Like.objects.filter(author=user, post__in=posts).values_list("post_id", flat=True)
     )
