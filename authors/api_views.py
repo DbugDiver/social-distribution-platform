@@ -7,6 +7,8 @@ from django.shortcuts import get_object_or_404
 
 from .models import Author, Follower
 from .serializers import AuthorSerializer
+from django.http import JsonResponse
+from posts.models import Post
 
 
 # ---------------------------------------------------
@@ -103,3 +105,33 @@ def api_get_friends(request, pk):
     count=len(serializer.data)
     items=serializer.data
     return Response({"type": "friends","count": count,"items": items})
+
+@api_view(["GET"])
+def remote_posts_api(request):
+    """Return JSON of remote posts for testing."""
+    posts = Post.objects.filter(is_remote=True, deleted=False)
+    data = [
+        {
+            "id": str(p.remote_id or p.id),
+            "title": p.title,
+            "content": p.content,
+            "content_type": p.content_type,
+            "visibility": p.visibility,
+            "created": p.created.isoformat(),
+            "author": {
+                "id": str(p.author.remote_id or p.author.id),
+                "username": p.author.username,
+            },
+            "comments": [
+                {
+                    "id": str(c.remote_id or c.id),
+                    "comment": c.comment,
+                    "author": {
+                        "id": str(c.author.remote_id or c.author.id),
+                        "username": c.author.username,
+                    }
+                } for c in p.comments.all()
+            ]
+        } for p in posts
+    ]
+    return Response(data)
