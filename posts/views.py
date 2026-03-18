@@ -116,26 +116,45 @@ def stream(request):
             c.like_count = c.likes.count()
             c.liked_by_me = c.id in comment_liked_ids
 
-    # --- REMOTE POSTS ---
     class RemotePost:
         """Wrap remote post JSON to behave like a Post object for the template"""
         def __init__(self, data, node_url):
-            self.__dict__.update(data)
             self.remote = True
             self.node_url = node_url
             self.rendered = data.get("content", "")
             self.like_count = data.get("like_count", 0)
             self.comment_count = len(data.get("comments", []))
             self.liked_by_me = False
-            self.comment_list = data.get("comments", [])[:3]
+
             # Parse created string into datetime
             created_str = data.get("created")
             try:
                 self.created = datetime.fromisoformat(created_str) if created_str else datetime.min
             except ValueError:
                 self.created = datetime.min
-            # author dict is expected from remote node JSON
-            self.author = type("AuthorObj", (), data.get("author", {}))
+
+            # Wrap author dict into an object
+            author_data = data.get("author", {})
+            self.author = type("AuthorObj", (), {
+                "username": author_data.get("username", "Unknown"),
+                "profileImage": author_data.get("profileImage", None)
+            })
+
+            # Wrap comments into objects (like local comments)
+            self.comment_list = []
+            for c in data.get("comments", [])[:3]:
+                comment_author_data = c.get("author", {})
+                comment_author = type("AuthorObj", (), {
+                    "username": comment_author_data.get("username", "Unknown")
+                })
+                comment_obj = type("CommentObj", (), {
+                    "id": c.get("id"),  # can be None for remote
+                    "comment": c.get("comment"),
+                    "author": comment_author,
+                    "like_count": c.get("like_count", 0),
+                    "liked_by_me": False
+                })
+                self.comment_list.append(comment_obj)
             
     current_node = request.build_absolute_uri("/").rstrip("/")
     remote_posts = []

@@ -144,10 +144,13 @@
 
           <!-- Changed section: preview of latest comments and comment-like button -->
           {% if post.comment_list %}
-            <div class="comment-list">
-              {% for comment in post.comment_list %}
-                <div class="comment-item">
-                  <div class="comment-text"><strong>{{ comment.author.username }}:</strong> {{ comment.comment }}</div>
+          <div class="comment-list">
+            {% for comment in post.comment_list %}
+              <div class="comment-item">
+                <div class="comment-text"><strong>{{ comment.author.username }}:</strong> {{ comment.comment }}</div>
+
+                {# Only show like button if comment has a valid ID (local comment) #}
+                {% if comment.id %}
                   <form method="post" action="{% url 'posts:like-comment' post.id comment.id %}" class="inline-form">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{{ request.path }}">
@@ -155,22 +158,14 @@
                       {% if comment.liked_by_me %}❤️{% else %}🤍{% endif %} {{ comment.like_count }}
                     </button>
                   </form>
-                </div>
-              {% endfor %}
-              {% if post.comment_count > 3 %}
-                <a href="{% url 'posts:detail' post.id %}" class="view-more-comments">View all comments</a>
-              {% endif %}
-            </div>
-          {% endif %}
-        </article>
-
-        {% empty %}
-        {% if user.is_authenticated %}
-          <p class="empty">There are no posts to show.</p>
-        {% else %}
-          <p class="empty">You must log in to access posts.</p>
+                {% endif %}
+              </div>
+            {% endfor %}
+            {% if post.comment_count > 3 %}
+              <a href="{% url 'posts:detail' post.id %}" class="view-more-comments">View all comments</a>
+            {% endif %}
+          </div>
         {% endif %}
-      {% endfor %}
     </section>
 
     <!-- Sidebar -->
