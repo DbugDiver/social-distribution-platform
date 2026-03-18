@@ -117,38 +117,43 @@ def stream(request):
             c.liked_by_me = c.id in comment_liked_ids
 
     class RemotePost:
-        """Wrap remote post JSON to behave like a Post object for the template"""
         def __init__(self, data, node_url):
+            # Ensure ID exists and is a string
+            self.id = str(data.get("id") or "")  # fallback to empty string if missing
+            self.title = data.get("title", "")
+            self.content = data.get("content", "")
+            self.content_type = data.get("content_type", "text/plain")
+            self.visibility = data.get("visibility", "PUBLIC")
+            self.image = data.get("image")
             self.remote = True
             self.node_url = node_url
-            self.rendered = data.get("content", "")
+            self.rendered = md.markdown(self.content, extensions=["extra"]) if self.content_type == "text/markdown" else self.content
             self.like_count = data.get("like_count", 0)
             self.comment_count = len(data.get("comments", []))
             self.liked_by_me = False
 
-            # Parse created string into datetime
+            # parse datetime
             created_str = data.get("created")
             try:
                 self.created = datetime.fromisoformat(created_str) if created_str else datetime.min
             except ValueError:
                 self.created = datetime.min
 
-            # Wrap author dict into an object
+            # author object
             author_data = data.get("author", {})
             self.author = type("AuthorObj", (), {
                 "username": author_data.get("username", "Unknown"),
                 "profileImage": author_data.get("profileImage", None)
             })
 
-            # Wrap comments into objects (like local comments)
+            # wrap comments into objects with proper IDs for URL reversing
             self.comment_list = []
             for c in data.get("comments", [])[:3]:
-                comment_author_data = c.get("author", {})
                 comment_author = type("AuthorObj", (), {
-                    "username": comment_author_data.get("username", "Unknown")
+                    "username": c.get("author", {}).get("username", "Unknown")
                 })
                 comment_obj = type("CommentObj", (), {
-                    "id": c.get("id"),  # can be None for remote
+                    "id": str(c.get("id") or ""),  # <-- make sure ID exists as string
                     "comment": c.get("comment"),
                     "author": comment_author,
                     "like_count": c.get("like_count", 0),
