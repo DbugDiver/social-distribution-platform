@@ -41,6 +41,9 @@ class Post(models.Model):
     deleted = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+    remote_id = models.URLField(unique=True, null=True, blank=True)
+    is_remote = models.BooleanField(default=False)
+    node_url = models.URLField(null=True, blank=True)
 
     class Meta:
         # User Story 1: add practical indexes for common stream/detail queries.
@@ -83,6 +86,8 @@ class Comment(models.Model):
     )
     published = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+    remote_id = models.URLField(unique=True, null=True, blank=True)
+    is_remote = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-published"]
@@ -98,6 +103,8 @@ class Comment(models.Model):
 class Like(models.Model):
     # Changed section: local like model (supports liking either a post or a comment).
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    remote_id = models.URLField(unique=True, null=True, blank=True)
+    is_remote = models.BooleanField(default=False)
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

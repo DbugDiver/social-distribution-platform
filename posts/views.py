@@ -75,13 +75,77 @@ Finally, it will send the posts to the stream.html template for rendering.
 def stream(request):
     user = request.user
 
-    # --- LOCAL POSTS ---
+    # --- SYNC REMOTE POSTS INTO DB ---
+    from django.utils.dateparse import parse_datetime
+    import uuid
+
+    for node_url in getattr(settings, "REMOTE_NODES", []):
+        try:
+            r = requests.get(f"{node_url}/remote-posts/", timeout=3)
+            if r.status_code != 200:
+                continue
+
+            for rp in r.json():
+                author_data = rp.get("author", {})
+
+                author, _ = Author.objects.update_or_create(
+                    remote_id=author_data.get("id"),
+                    defaults={
+                        "displayName": author_data.get("username", "Unknown"),
+                        "host": node_url,
+                        "is_remote": True,
+                        "username": f"remote_{uuid.uuid4()}",
+                    },
+                )
+                author.set_unusable_password()
+                author.save()
+
+                post, _ = Post.objects.update_or_create(
+                    remote_id=rp.get("id"),
+                    defaults={
+                        "author": author,
+                        "title": rp.get("title", ""),
+                        "content": rp.get("content", ""),
+                        "content_type": rp.get("content_type", "text/plain"),
+                        "visibility": rp.get("visibility", "PUBLIC"),
+                        "is_remote": True,
+                        "node_url": node_url,
+                        "created": parse_datetime(rp.get("created")),
+                    },
+                )
+
+                for c in rp.get("comments", []):
+                    comment_author_data = c.get("author", {})
+
+                    comment_author, _ = Author.objects.update_or_create(
+                        remote_id=comment_author_data.get("id"),
+                        defaults={
+                            "displayName": comment_author_data.get("username", "Unknown"),
+                            "host": node_url,
+                            "is_remote": True,
+                            "username": f"remote_{uuid.uuid4()}",
+                        },
+                    )
+
+                    Comment.objects.update_or_create(
+                        remote_id=c.get("id"),
+                        defaults={
+                            "post": post,
+                            "author": comment_author,
+                            "comment": c.get("comment"),
+                        },
+                    )
+
+        except requests.RequestException:
+            continue
+
+    # --- NOW JUST QUERY POSTS (LOCAL + REMOTE TOGETHER) ---
     following_ids = Follower.objects.filter(
         follower=user,
         status="accepted",
     ).values_list("following_id", flat=True)
 
-    local_posts = (
+    posts = (
         Post.objects.filter(deleted=False)
         .filter(
             Q(author=user)
@@ -95,97 +159,33 @@ def stream(request):
         .order_by("-created")
     )
 
-    # Prepare likes for the current user
     post_liked_ids = set(
-        Like.objects.filter(author=user, post__in=local_posts).values_list("post_id", flat=True)
+        Like.objects.filter(author=user, post__in=posts).values_list("post_id", flat=True)
     )
     comment_liked_ids = set(
-        Like.objects.filter(author=user, comment__post__in=local_posts).values_list("comment_id", flat=True)
+        Like.objects.filter(author=user, comment__post__in=posts).values_list("comment_id", flat=True)
     )
 
-    for p in local_posts:
+    for p in posts:
         if p.content_type == Post.ContentType.MARKDOWN:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
         else:
             p.rendered = None
+
         p.like_count = p.likes.count()
         p.comment_count = p.comments.count()
         p.liked_by_me = p.id in post_liked_ids
+
         p.comment_list = list(_visible_comments_for_viewer(user, p)[:3])
         for c in p.comment_list:
             c.like_count = c.likes.count()
             c.liked_by_me = c.id in comment_liked_ids
 
-    class RemotePost:
-        def __init__(self, data, node_url):
-            # Ensure ID exists and is a string
-            self.id = str(data.get("id") or "")  # fallback to empty string if missing
-            self.title = data.get("title", "")
-            self.content = data.get("content", "")
-            self.content_type = data.get("content_type", "text/plain")
-            self.visibility = data.get("visibility", "PUBLIC")
-            self.image = data.get("image")
-            self.remote = True
-            self.node_url = node_url
-            self.rendered = md.markdown(self.content, extensions=["extra"]) if self.content_type == "text/markdown" else self.content
-            self.like_count = data.get("like_count", 0)
-            self.comment_count = len(data.get("comments", []))
-            self.liked_by_me = False
-
-            # parse datetime
-            created_str = data.get("created")
-            try:
-                self.created = datetime.fromisoformat(created_str) if created_str else datetime.min
-            except ValueError:
-                self.created = datetime.min
-
-            # author object
-            author_data = data.get("author", {})
-            self.author = type("AuthorObj", (), {
-                "username": author_data.get("username", "Unknown"),
-                "profileImage": author_data.get("profileImage", None)
-            })
-
-            # wrap comments into objects with proper IDs for URL reversing
-            self.comment_list = []
-            for c in data.get("comments", [])[:3]:
-                comment_author = type("AuthorObj", (), {
-                    "username": c.get("author", {}).get("username", "Unknown")
-                })
-                comment_obj = type("CommentObj", (), {
-                    "id": str(c.get("id") or ""),  # <-- make sure ID exists as string
-                    "comment": c.get("comment"),
-                    "author": comment_author,
-                    "like_count": c.get("like_count", 0),
-                    "liked_by_me": False
-                })
-                self.comment_list.append(comment_obj)
-            
-    current_node = request.build_absolute_uri("/").rstrip("/")
-    remote_posts = []
-    for node_url in getattr(settings, "REMOTE_NODES", []):
-        node_url = node_url.strip("/")
-        
-        if node_url == current_node:
-            continue
-    
-        try:
-            r = requests.get(f"{node_url}/remote-posts/", timeout=3)
-            if r.status_code == 200:
-                for rp in r.json():
-                    remote_posts.append(RemotePost(rp, node_url))
-        except requests.RequestException:
-            continue
-
-    # --- MERGE AND SORT ---
-    all_posts = list(local_posts) + remote_posts
-    all_posts.sort(key=lambda x: getattr(x, "created", datetime.min), reverse=True)
-
     return render(
         request,
         "posts/stream.html",
         {
-            "posts": all_posts,
+            "posts": posts,
             "feed_title": "Public Stream",
         },
     )
@@ -197,104 +197,37 @@ If markdown then it will convert it to HTML.
 Finally, it will send the post content to the detail.html template for rendering.
 """
 def detail(request, post_id):
-    post = None
+    post = get_object_or_404(Post, id=post_id, deleted=False)
 
-    # --- Try local first ---
-    try:
-        if request.user.is_superuser:
-            post = Post.objects.get(id=post_id)
-        else:
-            post = Post.objects.get(id=post_id, deleted=False)
+    # Permission check
+    if not _can_interact_with_post(request.user, post):
+        return HttpResponseForbidden("Not allowed.")
 
-    except Post.DoesNotExist:
-        post = None
+    rendered = _render_markdown(post.content) if post.content_type == Post.ContentType.MARKDOWN else None
+    comments = _visible_comments_for_viewer(request.user, post)
 
-    # --- If local found ---
-    if post:
-        if not request.user.is_superuser:
-
-            if post.visibility == Post.Visibility.PUBLIC:
-                pass
-
-            elif post.visibility == Post.Visibility.UNLISTED:
-                pass
-
-            elif post.visibility == Post.Visibility.FRIENDS:
-                if not request.user.is_authenticated:
-                    return HttpResponseForbidden("Login required.")
-
-                if (
-                    request.user != post.author
-                    and not _is_friend(request.user, post.author)
-                    and not post.comments.filter(author=request.user).exists()
-                ):
-                    return HttpResponseForbidden("Not allowed.")
-
-            else:
-                return HttpResponseForbidden("Invalid visibility.")
-
-        rendered = None
-        if post.content_type == Post.ContentType.MARKDOWN:
-            rendered = _render_markdown(post.content)
-
-        comments = _visible_comments_for_viewer(request.user, post)
-
-        comment_liked_ids = set()
-        post_liked_by_me = False
-
-        if request.user.is_authenticated:
-            comment_liked_ids = set(
-                Like.objects.filter(
-                    author=request.user,
-                    comment__post=post
-                ).values_list("comment_id", flat=True)
-            )
-
-            post_liked_by_me = Like.objects.filter(
-                author=request.user,
-                post=post
-            ).exists()
-
-        for c in comments:
-            c.like_count = c.likes.count()
-            c.liked_by_me = c.id in comment_liked_ids
-
-        return render(
-            request,
-            "posts/detail.html",
-            {
-                "post": post,
-                "rendered": rendered,
-                "comments": comments,
-                "post_liked_by_me": post_liked_by_me,
-            },
+    comment_liked_ids = set()
+    post_liked_by_me = False
+    if request.user.is_authenticated:
+        comment_liked_ids = set(
+            Like.objects.filter(author=request.user, comment__post=post).values_list("comment_id", flat=True)
         )
+        post_liked_by_me = Like.objects.filter(author=request.user, post=post).exists()
 
-    for node_url in settings.REMOTE_NODES:
-        try:
-            r = requests.get(f"{node_url}/remote-posts/", timeout=3)
+    for c in comments:
+        c.like_count = c.likes.count()
+        c.liked_by_me = c.id in comment_liked_ids
 
-            if r.status_code == 200:
-                remote_posts = r.json()
-
-                for rp in remote_posts:
-                    if str(rp.get("id")) == str(post_id):
-                        rp["remote"] = True
-
-                        return render(
-                            request,
-                            "posts/detail.html",
-                            {
-                                "post": rp,
-                                "rendered": rp.get("content"),
-                                "comments": [],
-                                "post_liked_by_me": False,
-                            },
-                        )
-
-        except requests.RequestException:
-            continue
-    raise Http404("Post not found")
+    return render(
+        request,
+        "posts/detail.html",
+        {
+            "post": post,
+            "rendered": rendered,
+            "comments": comments,
+            "post_liked_by_me": post_liked_by_me,
+        },
+    )
 
 @login_required
 def add_comment(request, post_id):

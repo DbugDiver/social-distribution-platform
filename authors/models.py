@@ -15,6 +15,8 @@ class Author(AbstractUser):
     github = models.URLField(max_length=255, blank=True, null=True)
     bio = models.TextField(blank=True, default="")
     profileImage = models.ImageField(upload_to="profile_images/", blank=True, null=True)
+    remote_id = models.URLField(unique=True, null=True, blank=True)
+    is_remote = models.BooleanField(default=False)
 
     def get_fqid(self):
         """Generates the exact URL-based ID required by the spec"""
