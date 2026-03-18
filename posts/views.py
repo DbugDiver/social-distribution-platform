@@ -7,7 +7,8 @@ import markdown as md
 from django.conf import settings
 import requests
 from datetime import datetime
-
+import uuid
+from django.utils.dateparse import parse_datetime
 from authors.models import Author, Follower
 from .forms import PostForm
 from .models import Comment, Like, Post
@@ -76,9 +77,6 @@ def stream(request):
     user = request.user
 
     # --- SYNC REMOTE POSTS INTO DB ---
-    import uuid
-    from django.utils.dateparse import parse_datetime
-
     for node_url in getattr(settings, "REMOTE_NODES", []):
         try:
             r = requests.get(f"{node_url}/remote-posts/", timeout=3)
@@ -86,25 +84,27 @@ def stream(request):
                 continue
 
             for rp in r.json():
-                author_data = rp.get("author", {})
+                try:
+                    # --- Process remote author ---
+                    author_data = rp.get("author", {})
+                    author_id = author_data.get("id") or str(uuid.uuid4())
+                    author, created = Author.objects.update_or_create(
+                        remote_id=author_id,
+                        defaults={
+                            "displayName": author_data.get("username", "Unknown"),
+                            "host": node_url,
+                            "is_remote": True,
+                            "username": f"remote_{uuid.uuid4()}",
+                        },
+                    )
+                    if created:
+                        author.set_unusable_password()
+                        author.save()
 
-                # Use the actual remote_id from the author data
-                author, _ = Author.objects.update_or_create(
-                    remote_id=author_data.get("id"),
-                    defaults={
-                        "displayName": author_data.get("username", "Unknown"),
-                        "host": node_url,
-                        "is_remote": True,
-                        "username": f"remote_{uuid.uuid4()}",
-                    },
-                )
-                author.set_unusable_password()
-                author.save()
-
-                # Use the remote post ID
-                post, _ = Post.objects.update_or_create(
-                    remote_id=rp.get("id"),
-                    defaults={
+                    # --- Process remote post ---
+                    post_id = rp.get("id") or str(uuid.uuid4())
+                    created_time = parse_datetime(rp.get("created"))
+                    defaults = {
                         "author": author,
                         "title": rp.get("title", ""),
                         "content": rp.get("content", ""),
@@ -112,48 +112,56 @@ def stream(request):
                         "visibility": rp.get("visibility", "PUBLIC"),
                         "is_remote": True,
                         "node_url": node_url,
-                        "created": parse_datetime(rp.get("created")) or None,
-                    },
-                )
+                    }
+                    if created_time:
+                        defaults["created"] = created_time
 
-                for c in rp.get("comments", []):
-                    comment_author_data = c.get("author", {})
+                    post, _ = Post.objects.update_or_create(remote_id=post_id, defaults=defaults)
 
-                    comment_author, _ = Author.objects.update_or_create(
-                        remote_id=comment_author_data.get("id"),
-                        defaults={
-                            "displayName": comment_author_data.get("username", "Unknown"),
-                            "host": node_url,
-                            "is_remote": True,
-                            "username": f"remote_{uuid.uuid4()}",
-                        },
-                    )
+                    # --- Process remote comments ---
+                    for c in rp.get("comments", []):
+                        comment_author_data = c.get("author", {})
+                        comment_author_id = comment_author_data.get("id") or str(uuid.uuid4())
+                        comment_author, _ = Author.objects.update_or_create(
+                            remote_id=comment_author_id,
+                            defaults={
+                                "displayName": comment_author_data.get("username", "Unknown"),
+                                "host": node_url,
+                                "is_remote": True,
+                                "username": f"remote_{uuid.uuid4()}",
+                            },
+                        )
 
-                    Comment.objects.update_or_create(
-                        remote_id=c.get("id"),
-                        defaults={
-                            "post": post,
-                            "author": comment_author,
-                            "comment": c.get("comment"),
-                        },
-                    )
+                        Comment.objects.update_or_create(
+                            remote_id=c.get("id") or str(uuid.uuid4()),
+                            defaults={
+                                "post": post,
+                                "author": comment_author,
+                                "comment": c.get("comment") or "",
+                            },
+                        )
+
+                except Exception as e:
+                    # Skip malformed remote posts/comments
+                    print(f"Skipping remote post due to error: {e}")
+                    continue
 
         except requests.RequestException:
             continue
 
-    # --- NOW JUST QUERY POSTS (LOCAL + REMOTE TOGETHER) ---
+    # --- QUERY POSTS FOR STREAM ---
     following_ids = Follower.objects.filter(
-        follower=user,
-        status="accepted",
+        follower=user, status="accepted"
     ).values_list("following_id", flat=True)
 
     posts = Post.objects.filter(deleted=False).filter(
-        Q(author=user) |  # your own posts
-        Q(visibility=Post.Visibility.PUBLIC) |  # all local PUBLIC posts
-        Q(author__is_remote=True, visibility=Post.Visibility.PUBLIC) |  # all remote PUBLIC posts
-        Q(author_id__in=following_ids, visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED])  # friends/unlisted
+        Q(author=user) |  # own posts
+        Q(visibility=Post.Visibility.PUBLIC) |  # all public posts
+        Q(author__is_remote=True, visibility=Post.Visibility.PUBLIC) |  # remote posts
+        Q(author_id__in=following_ids, visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED])
     ).prefetch_related("comments__author", "comments__likes", "likes").order_by("-created")
-    
+
+    # --- Likes info ---
     post_liked_ids = set(
         Like.objects.filter(author=user, post__in=posts).values_list("post_id", flat=True)
     )
@@ -184,7 +192,6 @@ def stream(request):
             "feed_title": "Public Stream",
         },
     )
-    
 """
 This function handle the logic for displaying the details of a single post.
 It will GET a single post by its ID, but only if it is not deleted. If it does not exist, return a 404 error page.
