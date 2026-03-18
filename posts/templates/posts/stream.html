@@ -89,12 +89,10 @@
           {% endif %}
 
           {% if post.image %}
-            <figure class="post-image-wrapper" style="width:100%; overflow:hidden; border-radius:16px;">
-              <img src="{% if post.image.url %}{{ post.image.url }}{% else %}{{ post.image }}{% endif %}"
-                  alt="Post image"
-                  style="width:100%; height:320px; object-fit:cover; display:block;">
-            </figure>
-          {% endif %}
+            <div class="post-image-wrapper" style="width:100%; overflow:hidden; border-radius:16px;">
+              <img src="{{ post.image.url }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;">
+            </div>
+          {% endif %} 
 
           {% if post.content %}
             <section class="post-text-wrapper">
