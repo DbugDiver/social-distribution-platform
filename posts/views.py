@@ -150,10 +150,8 @@ def stream(request):
         .filter(
             Q(author=user)
             | Q(visibility=Post.Visibility.PUBLIC)
-            | Q(
-                author_id__in=following_ids,
-                visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
-            )
+            | Q(author__is_remote=True, visibility=Post.Visibility.PUBLIC)
+            | Q(author_id__in=following_ids, visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED])
         )
         .prefetch_related("comments__author", "comments__likes", "likes")
         .order_by("-created")
@@ -378,36 +376,3 @@ def followers_feed(request):
             ).filter(deleted=False).order_by("-created")
     context={"posts": posts,"feed_title": "Friends Feed",}
     return render(request, "posts/stream.html", context)
-
-from django.http import JsonResponse
-
-def remote_posts(request):
-    posts = Post.objects.filter(
-        deleted=False,
-        visibility=Post.Visibility.PUBLIC
-    ).order_by("-created")
-
-    data = []
-
-    for p in posts:
-        data.append({
-            "id": p.id,
-            "title": p.title,
-            "content": p.content,
-            "content_type": p.content_type,
-            "created": p.created.isoformat(),
-            "author": {
-                "username": p.author.username,
-                "profileImage": p.author.profileImage.url if p.author.profileImage else "",
-            },
-            "like_count": p.likes.count(),
-            "comments": [
-                {
-                    "author": c.author.username,
-                    "comment": c.comment,
-                }
-                for c in p.comments.all()[:3]
-            ]
-        })
-
-    return JsonResponse(data, safe=False)
