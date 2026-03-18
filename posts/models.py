@@ -41,9 +41,9 @@ class Post(models.Model):
     deleted = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    remote_id = models.URLField(unique=True, null=True, blank=True)
+    remote_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
     is_remote = models.BooleanField(default=False)
-    node_url = models.URLField(null=True, blank=True)
+    node_url = models.URLField(blank=True, null=True)
 
     class Meta:
         # User Story 1: add practical indexes for common stream/detail queries.
@@ -86,7 +86,7 @@ class Comment(models.Model):
     )
     published = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    remote_id = models.URLField(unique=True, null=True, blank=True)
+    remote_id = models.CharField(max_length=255, blank=True, null=True, unique=True)
     is_remote = models.BooleanField(default=False)
 
     class Meta:
