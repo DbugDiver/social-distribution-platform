@@ -2,13 +2,10 @@ from django.urls import path
 from . import views
 from . import api_views
 
-# Change citation (local project work):
-# Added web and API routes for comments/likes and stream retrieval.
-
 app_name = "posts"
 
 urlpatterns = [
-    # Changed section: HTML routes for post stream and interactions.
+    # HTML routes
     path("", views.stream, name="stream"),
     path("friends/", views.followers_feed, name="friends-feed"),
     path("new/", views.create, name="create"),
@@ -20,7 +17,7 @@ urlpatterns = [
     path("<uuid:author_id>/posts/", views.author_posts, name="author-posts"),
     path("<uuid:post_id>/delete/", views.delete, name="delete"),
 
-    # Changed section: API routes for entries/comments/likes (Part 1 local node scope).
+    # Existing local API
     path("api/stream/", api_views.stream_api, name="api-stream"),
     path(
         "api/authors/<uuid:author_id>/posts/<uuid:post_id>/",
@@ -48,4 +45,17 @@ urlpatterns = [
         name="api-author-liked",
     ),
     path("api/likes/<uuid:like_id>/", api_views.like_detail_api, name="api-like-detail"),
+
+    # Federation-friendly public endpoints
+    path("api/public-posts/", api_views.public_posts_api, name="api-public-posts"),
+    path(
+        "api/public/authors/<uuid:author_id>/posts/<uuid:post_id>/comments/",
+        api_views.public_post_comments_api,
+        name="api-public-post-comments",
+    ),
+    path(
+        "api/public/authors/<uuid:author_id>/posts/<uuid:post_id>/likes/",
+        api_views.public_post_likes_api,
+        name="api-public-post-likes",
+    ),
 ]

@@ -15,20 +15,21 @@ except ImportError:
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DEBUG = "True"
+
 SECRET_KEY = os.environ.get(
     "SECRET_KEY",
     "django-insecure-vsc=qpkdlfthsm)na5b4hf9q!tiff#!cg00@=*mn@#h!+cd_))"
 )
 
-# List of other nodes your app can talk to
+SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000").rstrip("/")
+
 REMOTE_NODES = [
-    node.rstrip("/") for node in os.environ.get(
-        "REMOTE_NODES",
-        "https://honeydewtest-59b6356736d4.herokuapp.com,https://socialhoneydew-a63ad12e8e99.herokuapp.com"
-    ).split(",")
+    node.rstrip("/") for node in os.environ.get("REMOTE_NODES", "").split(",") if node.strip()
 ]
 
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
+ALLOWED_HOSTS = [
+    host.strip() for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if host.strip()
+]
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
@@ -85,7 +86,10 @@ WSGI_APPLICATION = "socialdistribution.wsgi.application"
 
 DATABASES = {
     "default": dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        default=os.environ.get(
+            "DATABASE_URL",
+            f"sqlite:///{BASE_DIR / os.environ.get('SQLITE_NAME', 'db.sqlite3')}"
+        ),
         conn_max_age=600,
         conn_health_checks=True,
     )
@@ -126,8 +130,8 @@ if USE_CLOUDINARY:
     }
     DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
 else:
-    # Local/dev fallback so tests run even when cloudinary extras are not available.
     DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "authors.Author"

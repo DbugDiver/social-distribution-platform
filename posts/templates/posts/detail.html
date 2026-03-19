@@ -10,41 +10,60 @@
 <main class="page">
   <section class="feed" style="max-width:900px;width:100%;">
     <article class="post-card post-detail">
-      <h1>{{ post.title }}
+      <h1>
+        {{ post.title }}
         {% if post.deleted %}
-        <p style="color:red; font-weight:bold;">
-        ⚠️ THIS POST HAS BEEN DELETED
-        </p>
+          <p style="color:red; font-weight:bold;">
+            ⚠️ THIS POST HAS BEEN DELETED
+          </p>
         {% endif %}
       </h1>
 
-      <p><strong>Author:</strong> {{ post.author.username }}</p>
-      <p><strong>Created:</strong> {{ post.created }}</p>
+      <p>
+        <strong>Author:</strong>
+        {{ post.display_author.display_name }}
+        {% if post.is_remote %}
+          <span style="font-size: 0.85rem; color: #64748b;">(remote)</span>
+        {% endif %}
+      </p>
+
+      <p>
+        <strong>Created:</strong>
+        {{ post.effective_published|default:post.created }}
+      </p>
+
       <p><strong>Visibility:</strong> {{ post.visibility }}</p>
-      
+
       {% if rendered %}
         <div>{{ rendered|safe }}</div>
       {% else %}
         <p>{{ post.content }}</p>
       {% endif %}
+
       {% if post.image %}
         <div style="margin-top:15px;">
-        <img src="{{ post.image.url }}" style="max-width:100%; border-radius:8px;">
+          <img src="{{ post.image.url }}" style="max-width:100%; border-radius:8px;">
         </div>
       {% endif %}
 
-      <!-- Changed section: like/comment controls for this post -->
       {% if user.is_authenticated %}
         <div class="post-meta-row">
-          <span>❤️ {{ post.likes.count }} like{{ post.likes.count|pluralize }}</span>
-          <span>💬 {{ post.comments.count }} comment{{ post.comments.count|pluralize }}</span>
+          {% if post.is_remote %}
+            <span>❤️ {{ remote_likes|length }} like{{ remote_likes|length|pluralize }}</span>
+            <span>💬 {{ remote_comments|length }} comment{{ remote_comments|length|pluralize }}</span>
+          {% else %}
+            <span>❤️ {{ post.likes.count }} like{{ post.likes.count|pluralize }}</span>
+            <span>💬 {{ post.comments.count }} comment{{ post.comments.count|pluralize }}</span>
+          {% endif %}
         </div>
 
         <div class="post-interactions">
           <form method="post" action="{% url 'posts:like-post' post.id %}" class="inline-form">
             {% csrf_token %}
             <input type="hidden" name="next" value="{% url 'posts:detail' post.id %}">
-            <button type="submit" class="pill">{% if post_liked_by_me %}❤️ Liked{% else %}🤍 Like{% endif %}</button>
+            <button type="submit" class="pill">
+              {% if post_liked_by_me %}❤️ Liked{% else %}🤍 Like{% endif %}
+            </button>
           </form>
 
           <form method="post" action="{% url 'posts:add-comment' post.id %}" class="inline-form comment-inline-form">
@@ -58,26 +77,50 @@
 
       <hr>
       <h3>Comments</h3>
-      <!-- Changed section: full comments list + per-comment like action -->
-      {% for comment in comments %}
-        <div class="comment-item">
-          <div class="comment-text">
-            <strong>{{ comment.author.username }}</strong> · {{ comment.published }}<br>
-            {{ comment.comment }}
+
+      {% if post.is_remote %}
+        {% for comment in remote_comments %}
+          <div class="comment-item">
+            <div class="comment-text">
+              <strong>{{ comment.author_name|default:"Remote Author" }}</strong>
+              {% if comment.published %} · {{ comment.published }}{% endif %}<br>
+              {{ comment.comment }}
+            </div>
           </div>
-          {% if user.is_authenticated %}
-            <form method="post" action="{% url 'posts:like-comment' post.id comment.id %}" class="inline-form">
-              {% csrf_token %}
-              <input type="hidden" name="next" value="{% url 'posts:detail' post.id %}">
-              <button type="submit" class="comment-like-btn">
-                {% if comment.liked_by_me %}❤️{% else %}🤍{% endif %} {{ comment.like_count }}
-              </button>
-            </form>
-          {% endif %}
-        </div>
-      {% empty %}
-        <p>No comments yet.</p>
-      {% endfor %}
+        {% empty %}
+          <p>No comments yet.</p>
+        {% endfor %}
+      {% else %}
+        {% for comment in comments %}
+          <div class="comment-item">
+            <div class="comment-text">
+              <strong>
+                {% if comment.display_author.display_name %}
+                  {{ comment.display_author.display_name }}
+                {% elif comment.author %}
+                  {{ comment.author.username }}
+                {% else %}
+                  Remote Author
+                {% endif %}
+              </strong>
+              {% if comment.published %} · {{ comment.published }}{% endif %}<br>
+              {{ comment.comment }}
+            </div>
+
+            {% if user.is_authenticated %}
+              <form method="post" action="{% url 'posts:like-comment' post.id comment.id %}" class="inline-form">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{% url 'posts:detail' post.id %}">
+                <button type="submit" class="comment-like-btn">
+                  {% if comment.liked_by_me %}❤️{% else %}🤍{% endif %} {{ comment.like_count }}
+                </button>
+              </form>
+            {% endif %}
+          </div>
+        {% empty %}
+          <p>No comments yet.</p>
+        {% endfor %}
+      {% endif %}
 
       <a href="{% url 'posts:stream' %}">Back to Stream</a>
     </article>

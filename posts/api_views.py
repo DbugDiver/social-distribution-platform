@@ -1,4 +1,5 @@
 from urllib.parse import urlencode
+import json
 
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import EmptyPage, Paginator
@@ -6,16 +7,10 @@ from django.db.models import Q
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
+from django.views.decorators.csrf import csrf_exempt
 
 from authors.models import Author, Follower
 from .models import Comment, Like, Post
-
-"""
-Change citation (local project work):
-- Added Part 1 JSON API endpoints for comments/likes/stream.
-- Responses use FQID-style URLs and paginated collections.
-- Includes local visibility enforcement (PUBLIC/FRIENDS/UNLISTED/DELETED).
-"""
 
 
 def _author_obj(author: Author, request):
@@ -24,26 +19,18 @@ def _author_obj(author: Author, request):
     return {
         "type": "author",
         "id": fqid,
-        "host": author.host or request.build_absolute_uri("/"),
-        "displayName": author.displayName or author.username,
+        "host": getattr(author, "host", "") or request.build_absolute_uri("/"),
+        "displayName": getattr(author, "displayName", "") or getattr(author, "username", "Unknown"),
         "url": fqid,
-        "github": author.github or "",
-        "profileImage": author.profileImage or "",
+        "github": getattr(author, "github", "") or "",
+        "profileImage": getattr(author, "profileImage", "") or "",
     }
 
 
 def _is_friend(user: Author, other: Author):
     return (
-        Follower.objects.filter(
-            follower=user,
-            following=other,
-            status="accepted",
-        ).exists()
-        and Follower.objects.filter(
-            follower=other,
-            following=user,
-            status="accepted",
-        ).exists()
+        Follower.objects.filter(follower=user, following=other, status="accepted").exists()
+        and Follower.objects.filter(follower=other, following=user, status="accepted").exists()
     )
 
 
@@ -68,7 +55,6 @@ def _can_view_post(user, post: Post):
 
 
 def _can_view_post_comments(user, post: Post):
-    # User Story 3: for FRIENDS posts, allow comment authors to see comments even if friendship changed later.
     if _can_view_post(user, post):
         return True
     if not user.is_authenticated:
@@ -79,7 +65,6 @@ def _can_view_post_comments(user, post: Post):
 
 
 def _visible_comments_queryset(user, post: Post):
-    # User Story 3: friends can see all comments, non-friend commenters see only their own comment(s).
     base_qs = post.comments.select_related("author")
     if post.visibility != Post.Visibility.FRIENDS:
         return base_qs
@@ -95,16 +80,19 @@ def _pagination_params(request):
         page = max(1, int(request.GET.get("page", 1)))
     except (TypeError, ValueError):
         page = 1
+
     try:
         size = max(1, min(100, int(request.GET.get("size", 5))))
     except (TypeError, ValueError):
         size = 5
+
     return page, size
 
 
 def _paginated_collection(*, request, base_path, collection_type, queryset, serializer):
     page, size = _pagination_params(request)
     paginator = Paginator(queryset, size)
+
     try:
         page_obj = paginator.page(page)
     except EmptyPage:
@@ -119,6 +107,7 @@ def _paginated_collection(*, request, base_path, collection_type, queryset, seri
 
     query = urlencode({"page": current_page, "size": size})
     collection_id = request.build_absolute_uri(f"{base_path}?{query}")
+
     return {
         "type": collection_type,
         "id": collection_id,
@@ -150,9 +139,12 @@ def _comment_obj(comment: Comment, request):
             "comment_id": comment.id,
         },
     )
+
+    author_obj = _author_obj(comment.author, request)
+
     return {
         "type": "comment",
-        "author": _author_obj(comment.author, request),
+        "author": author_obj,
         "comment": comment.comment,
         "contentType": comment.content_type,
         "published": comment.published.isoformat(),
@@ -167,14 +159,27 @@ def _comment_obj(comment: Comment, request):
 
 
 def _like_obj(like: Like, request):
+    if like.author:
+        author_name = getattr(like.author, "displayName", "") or getattr(like.author, "username", "Unknown")
+        author_obj = _author_obj(like.author, request)
+    else:
+        author_name = like.remote_author_name or "Remote Author"
+        author_obj = {
+            "type": "author",
+            "id": like.remote_author_url or "",
+            "host": like.remote_author_host or "",
+            "displayName": like.remote_author_name or "Remote Author",
+            "url": like.remote_author_url or "",
+            "github": "",
+            "profileImage": "",
+        }
+
     if like.post_id:
         object_path = reverse(
             "posts:api-post-detail",
             kwargs={"author_id": like.post.author_id, "post_id": like.post_id},
         )
-        summary = (
-            f"{like.author.displayName or like.author.username} likes your post"
-        )
+        summary = f"{author_name} likes your post"
     else:
         object_path = reverse(
             "posts:api-comment-likes",
@@ -184,17 +189,16 @@ def _like_obj(like: Like, request):
                 "comment_id": like.comment_id,
             },
         ).replace("/likes/", "/")
-        summary = (
-            f"{like.author.displayName or like.author.username} likes your comment"
-        )
+        summary = f"{author_name} likes your comment"
 
     like_path = reverse("posts:api-like-detail", kwargs={"like_id": like.id})
+
     return {
         "type": "like",
         "summary": summary,
-        "author": _author_obj(like.author, request),
+        "author": author_obj,
         "object": request.build_absolute_uri(object_path),
-        "id": request.build_absolute_uri(like_path),
+        "id": request.build_absolute_uri(like_path) if not like.remote_id else str(like.remote_id),
         "published": like.created.isoformat(),
     }
 
@@ -203,6 +207,7 @@ def _like_obj(like: Like, request):
 def post_detail_api(request, author_id, post_id):
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
+
     post = get_object_or_404(Post, id=post_id, author_id=author_id)
     if not _can_view_post(request.user, post):
         return JsonResponse({"detail": "Not allowed."}, status=403)
@@ -219,6 +224,7 @@ def post_detail_api(request, author_id, post_id):
         "posts:api-post-likes",
         kwargs={"author_id": post.author_id, "post_id": post.id},
     )
+
     payload = {
         "type": "entry",
         "id": request.build_absolute_uri(post_path),
@@ -227,7 +233,7 @@ def post_detail_api(request, author_id, post_id):
         "content": post.content,
         "author": _author_obj(post.author, request),
         "visibility": post.visibility,
-        "published": post.created.isoformat(),
+        "published": (post.published or post.created).isoformat(),
         "updated": post.updated.isoformat(),
         "unlisted": post.visibility == Post.Visibility.UNLISTED,
         "comments": {
@@ -247,17 +253,20 @@ def post_detail_api(request, author_id, post_id):
 @login_required
 def post_comments_api(request, author_id, post_id):
     post = get_object_or_404(Post, id=post_id, author_id=author_id)
-    # User Story 3: comments may be visible to comment authors on FRIENDS posts.
+
     if not _can_view_post_comments(request.user, post):
         return JsonResponse({"detail": "Not allowed."}, status=403)
 
     if request.method == "POST":
         if post.deleted:
             return JsonResponse({"detail": "Deleted entries cannot be commented on."}, status=400)
+
         text = (request.POST.get("comment") or "").strip()
         content_type = request.POST.get("contentType", Comment.ContentType.PLAIN)
+
         if not text:
             return JsonResponse({"detail": "comment is required."}, status=400)
+
         if content_type not in [Comment.ContentType.PLAIN, Comment.ContentType.MARKDOWN]:
             return JsonResponse({"detail": "Invalid contentType."}, status=400)
 
@@ -289,15 +298,16 @@ def post_comments_api(request, author_id, post_id):
 @login_required
 def post_likes_api(request, author_id, post_id):
     post = get_object_or_404(Post, id=post_id, author_id=author_id)
+
     if not _can_view_post(request.user, post):
         return JsonResponse({"detail": "Not allowed."}, status=403)
 
     if request.method == "POST":
         if post.deleted:
             return JsonResponse({"detail": "Deleted entries cannot be liked."}, status=400)
+
         like, created = Like.objects.get_or_create(author=request.user, post=post)
-        status_code = 201 if created else 200
-        return JsonResponse(_like_obj(like, request), status=status_code)
+        return JsonResponse(_like_obj(like, request), status=201 if created else 200)
 
     if request.method == "GET":
         base_path = reverse(
@@ -320,9 +330,10 @@ def post_likes_api(request, author_id, post_id):
 def comment_likes_api(request, author_id, post_id, comment_id):
     post = get_object_or_404(Post, id=post_id, author_id=author_id)
     comment = get_object_or_404(Comment, id=comment_id, post=post)
-    # User Story 3: comment authors can still see/like their own comment thread on FRIENDS posts.
+
     if not _can_view_post_comments(request.user, post):
         return JsonResponse({"detail": "Not allowed."}, status=403)
+
     if (
         post.visibility == Post.Visibility.FRIENDS
         and request.user.is_authenticated
@@ -335,9 +346,9 @@ def comment_likes_api(request, author_id, post_id, comment_id):
     if request.method == "POST":
         if post.deleted:
             return JsonResponse({"detail": "Deleted entries cannot be liked."}, status=400)
+
         like, created = Like.objects.get_or_create(author=request.user, comment=comment)
-        status_code = 201 if created else 200
-        return JsonResponse(_like_obj(like, request), status=status_code)
+        return JsonResponse(_like_obj(like, request), status=201 if created else 200)
 
     if request.method == "GET":
         base_path = reverse(
@@ -364,6 +375,7 @@ def comment_likes_api(request, author_id, post_id, comment_id):
 def author_liked_api(request, author_id):
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
+
     author = get_object_or_404(Author, id=author_id)
 
     if request.user.id != author.id:
@@ -374,6 +386,7 @@ def author_liked_api(request, author_id):
     )
     page, size = _pagination_params(request)
     paginator = Paginator(likes_qs, size)
+
     try:
         page_obj = paginator.page(page)
     except EmptyPage:
@@ -389,6 +402,7 @@ def author_liked_api(request, author_id):
 
     liked_path = reverse("posts:api-author-liked", kwargs={"author_id": author.id})
     query = urlencode({"page": page_obj.number if page_obj else 1, "size": size})
+
     payload = {
         "type": "likes",
         "id": request.build_absolute_uri(f"{liked_path}?{query}"),
@@ -403,7 +417,11 @@ def author_liked_api(request, author_id):
 def like_detail_api(request, like_id):
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
-    like = get_object_or_404(Like.objects.select_related("author", "post", "comment", "comment__post"), id=like_id)
+
+    like = get_object_or_404(
+        Like.objects.select_related("author", "post", "comment", "comment__post"),
+        id=like_id,
+    )
     return JsonResponse(_like_obj(like, request), status=200)
 
 
@@ -450,8 +468,301 @@ def stream_api(request):
             "content": post.content,
             "author": _author_obj(post.author, req),
             "visibility": post.visibility,
-            "published": post.created.isoformat(),
+            "published": (post.published or post.created).isoformat(),
             "updated": post.updated.isoformat(),
         },
     )
     return JsonResponse(payload, status=200)
+
+
+def _remote_author_obj_from_payload(author_payload):
+    if not isinstance(author_payload, dict):
+        return {
+            "id": "",
+            "displayName": "Remote Author",
+            "host": "",
+        }
+    return {
+        "id": author_payload.get("id", ""),
+        "displayName": author_payload.get("displayName") or author_payload.get("username") or "Remote Author",
+        "host": author_payload.get("host", ""),
+    }
+
+
+def _public_post_or_404(author_id, post_id):
+    return get_object_or_404(
+        Post.objects.select_related("author"),
+        id=post_id,
+        author_id=author_id,
+        deleted=False,
+        visibility=Post.Visibility.PUBLIC,
+        is_remote=False,
+    )
+
+
+def _comment_obj_public(comment: Comment, request):
+    if comment.author:
+        author_obj = _author_obj(comment.author, request)
+    else:
+        author_obj = {
+            "type": "author",
+            "id": comment.remote_author_url or "",
+            "host": comment.remote_author_host or "",
+            "displayName": comment.remote_author_name or "Remote Author",
+            "url": comment.remote_author_url or "",
+            "github": "",
+            "profileImage": "",
+        }
+
+    return {
+        "type": "comment",
+        "author": author_obj,
+        "comment": comment.comment,
+        "contentType": comment.content_type,
+        "published": comment.published.isoformat(),
+        "id": str(comment.remote_id or comment.id),
+    }
+
+
+def _like_obj_public(like: Like, request):
+    if like.author:
+        author_obj = _author_obj(like.author, request)
+        author_name = getattr(like.author, "displayName", "") or getattr(like.author, "username", "Unknown")
+    else:
+        author_obj = {
+            "type": "author",
+            "id": like.remote_author_url or "",
+            "host": like.remote_author_host or "",
+            "displayName": like.remote_author_name or "Remote Author",
+            "url": like.remote_author_url or "",
+            "github": "",
+            "profileImage": "",
+        }
+        author_name = like.remote_author_name or "Remote Author"
+
+    if like.post_id:
+        summary = f"{author_name} likes your post"
+        object_id = request.build_absolute_uri(
+            reverse(
+                "posts:api-post-detail",
+                kwargs={"author_id": like.post.author_id, "post_id": like.post_id},
+            )
+        )
+    else:
+        summary = f"{author_name} likes your comment"
+        object_id = ""
+
+    return {
+        "type": "like",
+        "summary": summary,
+        "author": author_obj,
+        "object": object_id,
+        "id": str(like.remote_id or like.id),
+        "published": like.created.isoformat(),
+    }
+
+
+def public_posts_api(request):
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET"])
+
+    posts = (
+        Post.objects.filter(
+            deleted=False,
+            is_remote=False,
+            visibility=Post.Visibility.PUBLIC,
+        )
+        .select_related("author")
+        .order_by("-created")
+    )
+
+    items = []
+    for post in posts:
+        author_obj = _author_obj(post.author, request)
+
+        comments_url = request.build_absolute_uri(
+            reverse(
+                "posts:api-public-post-comments",
+                kwargs={"author_id": post.author_id, "post_id": post.id},
+            )
+        )
+        likes_url = request.build_absolute_uri(
+            reverse(
+                "posts:api-public-post-likes",
+                kwargs={"author_id": post.author_id, "post_id": post.id},
+            )
+        )
+
+        items.append({
+            "type": "post",
+            "id": request.build_absolute_uri(
+                reverse(
+                    "posts:api-post-detail",
+                    kwargs={"author_id": post.author_id, "post_id": post.id},
+                )
+            ),
+            "title": post.title,
+            "contentType": post.content_type,
+            "content": post.content,
+            "author": author_obj,
+            "visibility": post.visibility,
+            "published": (post.published or post.created).isoformat(),
+            "updated": post.updated.isoformat(),
+            "unlisted": post.visibility == Post.Visibility.UNLISTED,
+            "comments": {
+                "type": "comments",
+                "id": comments_url,
+                "count": post.comments.count(),
+            },
+            "likes": {
+                "type": "likes",
+                "id": likes_url,
+                "count": post.likes.count(),
+            },
+        })
+
+    return JsonResponse({"type": "posts", "items": items}, status=200)
+
+
+@csrf_exempt
+def public_post_comments_api(request, author_id, post_id):
+    post = _public_post_or_404(author_id, post_id)
+
+    if request.method == "GET":
+        comments = post.comments.select_related("author").order_by("-published")
+        return JsonResponse(
+            {
+                "type": "comments",
+                "count": comments.count(),
+                "src": [_comment_obj_public(comment, request) for comment in comments],
+            },
+            status=200,
+        )
+
+    if request.method == "POST":
+        if request.content_type == "application/json":
+            try:
+                payload = json.loads(request.body.decode("utf-8"))
+            except Exception:
+                return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+            text = (payload.get("comment") or "").strip()
+            content_type = payload.get("contentType", Comment.ContentType.PLAIN)
+            author_payload = _remote_author_obj_from_payload(payload.get("author"))
+
+            if not text:
+                return JsonResponse({"detail": "comment is required."}, status=400)
+
+            if content_type not in [Comment.ContentType.PLAIN, Comment.ContentType.MARKDOWN]:
+                content_type = Comment.ContentType.PLAIN
+
+            remote_id = payload.get("id") or None
+
+            if remote_id:
+                comment, created = Comment.objects.get_or_create(
+                    remote_id=remote_id,
+                    defaults={
+                        "post": post,
+                        "author": None,
+                        "comment": text,
+                        "content_type": content_type,
+                        "is_remote": True,
+                        "remote_author_url": author_payload["id"],
+                        "remote_author_name": author_payload["displayName"],
+                        "remote_author_host": author_payload["host"],
+                    },
+                )
+                return JsonResponse(_comment_obj_public(comment, request), status=201 if created else 200)
+
+            comment = Comment.objects.create(
+                post=post,
+                author=None,
+                comment=text,
+                content_type=content_type,
+                is_remote=True,
+                remote_author_url=author_payload["id"],
+                remote_author_name=author_payload["displayName"],
+                remote_author_host=author_payload["host"],
+            )
+            return JsonResponse(_comment_obj_public(comment, request), status=201)
+
+        text = (request.POST.get("comment") or "").strip()
+        content_type = request.POST.get("contentType", Comment.ContentType.PLAIN)
+
+        if not request.user.is_authenticated:
+            return JsonResponse({"detail": "Login required."}, status=403)
+
+        if not text:
+            return JsonResponse({"detail": "comment is required."}, status=400)
+
+        if content_type not in [Comment.ContentType.PLAIN, Comment.ContentType.MARKDOWN]:
+            content_type = Comment.ContentType.PLAIN
+
+        comment = Comment.objects.create(
+            post=post,
+            author=request.user,
+            comment=text,
+            content_type=content_type,
+            is_remote=False,
+        )
+        return JsonResponse(_comment_obj_public(comment, request), status=201)
+
+    return HttpResponseNotAllowed(["GET", "POST"])
+
+
+@csrf_exempt
+def public_post_likes_api(request, author_id, post_id):
+    post = _public_post_or_404(author_id, post_id)
+
+    if request.method == "GET":
+        likes = post.likes.select_related("author", "post").order_by("-created")
+        return JsonResponse(
+            {
+                "type": "likes",
+                "count": likes.count(),
+                "src": [_like_obj_public(like, request) for like in likes],
+            },
+            status=200,
+        )
+
+    if request.method == "POST":
+        if request.content_type == "application/json":
+            try:
+                payload = json.loads(request.body.decode("utf-8"))
+            except Exception:
+                return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+            author_payload = _remote_author_obj_from_payload(payload.get("author"))
+            remote_id = payload.get("id") or payload.get("remote_id") or None
+
+            if remote_id:
+                like, created = Like.objects.get_or_create(
+                    remote_id=remote_id,
+                    defaults={
+                        "is_remote": True,
+                        "author": None,
+                        "post": post,
+                        "remote_author_url": author_payload["id"],
+                        "remote_author_name": author_payload["displayName"],
+                        "remote_author_host": author_payload["host"],
+                    },
+                )
+                return JsonResponse(_like_obj_public(like, request), status=201 if created else 200)
+
+            like = Like.objects.create(
+                is_remote=True,
+                author=None,
+                post=post,
+                remote_author_url=author_payload["id"],
+                remote_author_name=author_payload["displayName"],
+                remote_author_host=author_payload["host"],
+            )
+            return JsonResponse(_like_obj_public(like, request), status=201)
+
+        if not request.user.is_authenticated:
+            return JsonResponse({"detail": "Login required."}, status=403)
+
+        like, created = Like.objects.get_or_create(author=request.user, post=post)
+        return JsonResponse(_like_obj_public(like, request), status=201 if created else 200)
+
+    return HttpResponseNotAllowed(["GET", "POST"])
