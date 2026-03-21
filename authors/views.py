@@ -288,6 +288,12 @@ def edit_profile(request, author_id=None):
 @login_required
 def send_a_follow_request(request):
     author = request.user
+    next_url = (request.POST.get("next") or "").strip()
+
+    def _redirect_back():
+        if next_url.startswith("/"):
+            return redirect(next_url)
+        return redirect("author-search")
 
     is_remote = request.POST.get("is_remote") == "True"
 
@@ -297,7 +303,7 @@ def send_a_follow_request(request):
         following = get_object_or_404(Author, pk=pk)
 
         if author == following:
-            return redirect("author-search")
+            return _redirect_back()
 
         follow = Follower.objects.filter(
             follower=author,
@@ -329,13 +335,13 @@ def send_a_follow_request(request):
                 message=f"{author.displayName or author.username} wants to follow you.",
             )
 
-        return redirect("author-search")
+        return _redirect_back()
 
     else:
         # 🌍 REMOTE FOLLOW
         author_url = request.POST.get("author_id")
         if not author_url:
-            return redirect("author-search")
+            return _redirect_back()
 
         # Keep a local pending edge so callbacks can transition it to accepted.
         remote_target = _upsert_remote_author({"id": author_url, "url": author_url})
@@ -366,7 +372,7 @@ def send_a_follow_request(request):
         except Exception:
             pass
 
-        return redirect("author-search")
+        return _redirect_back()
 
 @login_required
 def accept_follow_request(request, pk):
@@ -383,6 +389,14 @@ def accept_follow_request(request, pk):
         "accepted"  # update the status of the follow request to accepted
     )
     follow_request.save()  # save the changes to the database
+    
+    # Clean up the old follow_request notification
+    Notification.objects.filter(
+        recipient=author,
+        sender=follower,
+        notification_type__in=["follow_request", "follow"]
+    ).delete()
+    
     Notification.objects.create(
         recipient=follower,
         sender=author,
@@ -416,6 +430,14 @@ def reject_follow_request(request, pk):
         "rejected"  # update the status of the follow request to rejected
     )
     follow_request.save()  # save the changes to the database
+    
+    # Clean up the follow_request notification when rejecting
+    Notification.objects.filter(
+        recipient=author,
+        sender=follower,
+        notification_type__in=["follow_request", "follow"]
+    ).delete()
+    
     return redirect("author-profile", pk=author.pk)
 
 
@@ -441,7 +463,17 @@ def unfollow(request, pk):
     following = get_object_or_404(
         Author, pk=pk
     )  # get the author that the user wants to unfollow, if the author does not exist, return a 404 error
+    
+    # Delete the follower relationship
     Follower.objects.filter(follower=author, following=following).delete()
+    
+    # Clean up any notifications related to this follow relationship
+    Notification.objects.filter(
+        recipient=author,
+        sender=following,
+        notification_type__in=["follow_request", "follow", "follow_accepted"]
+    ).delete()
+    
     return redirect("author-profile", pk=pk)
 
 
@@ -644,6 +676,13 @@ def api_author_inbox(request, pk):
             relation.status = "pending"
             relation.save(update_fields=["status"])
 
+        Notification.objects.create(
+            recipient=target,
+            sender=remote_follower,
+            notification_type="follow",
+            message=f"{remote_follower.displayName or remote_follower.username} wants to follow you.",
+        )
+
         return JsonResponse({"detail": "Follow request received."}, status=201)
 
     # Handles acceptance callback so the requester node can mark status=accepted locally.
@@ -669,14 +708,21 @@ def api_author_inbox(request, pk):
 def author_search(request):
     query = request.GET.get("q", "").strip()
     results = []
+    seen_ids = set()
 
     if query:
         # LOCAL
+        # Only list true local accounts here; remote proxy rows are merged below.
         local_users = Author.objects.filter(
             Q(username__icontains=query) | Q(displayName__icontains=query)
-        ).exclude(id=request.user.id)
+        ).filter(is_remote=False).exclude(id=request.user.id)
 
         for user in local_users:
+            author_id = f"{settings.SITE_URL}/authors/api/authors/{user.id}"
+            if author_id in seen_ids:
+                continue
+            seen_ids.add(author_id)
+
             results.append({
                 "id": f"{settings.SITE_URL}/authors/api/authors/{user.id}",  
                 "displayName": user.displayName or user.username,
@@ -696,7 +742,12 @@ def author_search(request):
             items = data.get("items", [])  #
 
             for author in items:
+                author_id = (author.get("id") or "").strip()
+                if not author_id or author_id in seen_ids:
+                    continue
+
                 author["is_remote"] = True
+                seen_ids.add(author_id)
                 results.append(author)
 
     context = {
