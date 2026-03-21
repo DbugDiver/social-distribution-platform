@@ -41,6 +41,7 @@ urlpatterns = [
     # User Story 2: REST GET author endpoint for alternate clients.
     path("api/authors/<uuid:pk>/", api_views.api_get_author),
     path("api/authors/<uuid:pk>/follow/", api_views.api_follow_author),
+    path("api/authors/<uuid:pk>/inbox/", views.api_author_inbox),
     path("api/authors/<uuid:pk>/accept/", api_views.api_accept_follow),
     path("api/authors/<uuid:pk>/reject/", api_views.api_reject_follow),
     path("api/authors/<uuid:pk>/following/", api_views.api_get_following),

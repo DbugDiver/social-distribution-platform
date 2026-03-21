@@ -2,6 +2,7 @@
 Django settings for socialdistribution project.
 """
 
+import json
 import os
 from pathlib import Path
 import dj_database_url
@@ -14,7 +15,8 @@ except ImportError:
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-DEBUG = "True"
+# Heroku/prod note: DEBUG must be a boolean. String values (e.g. "False") are truthy.
+DEBUG = os.environ.get("DEBUG", "False").strip().lower() in ("1", "true", "yes", "on")
 
 SECRET_KEY = os.environ.get(
     "SECRET_KEY",
@@ -27,8 +29,26 @@ REMOTE_NODES = [
     node.rstrip("/") for node in os.environ.get("REMOTE_NODES", "").split(",") if node.strip()
 ]
 
+# JSON object keyed by node URL, e.g.
+# {"https://node-a.example.com": {"username": "nodeuser", "password": "nodepass"}}
+try:
+    REMOTE_NODE_CREDENTIALS = json.loads(os.environ.get("REMOTE_NODE_CREDENTIALS", "{}"))
+except (TypeError, json.JSONDecodeError):
+    REMOTE_NODE_CREDENTIALS = {}
+
 ALLOWED_HOSTS = [
     host.strip() for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if host.strip()
+]
+
+# Heroku sits behind a proxy, so these let Django generate correct https absolute URLs.
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Keep CSRF origins aligned with SITE_URL and any explicit env list.
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CSRF_TRUSTED_ORIGINS", SITE_URL).split(",")
+    if origin.strip()
 ]
 
 MEDIA_URL = "/media/"

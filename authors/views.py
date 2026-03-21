@@ -1,10 +1,13 @@
 from datetime import datetime
+import uuid
+from urllib.parse import unquote, urlparse
 from socket import timeout
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
-from urllib.parse import unquote
+from django.http import JsonResponse
 import markdown as md  # If you are rendering markdown here
 import requests
+import json
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
@@ -284,7 +287,7 @@ def edit_profile(request, author_id=None):
 
 @login_required
 def send_a_follow_request(request):
-    author = request.user.author  # adjust if needed
+    author = request.user
 
     is_remote = request.POST.get("is_remote") == "True"
 
@@ -331,22 +334,37 @@ def send_a_follow_request(request):
     else:
         # 🌍 REMOTE FOLLOW
         author_url = request.POST.get("author_id")
+        if not author_url:
+            return redirect("author-search")
+
+        # Keep a local pending edge so callbacks can transition it to accepted.
+        remote_target = _upsert_remote_author({"id": author_url, "url": author_url})
+        if remote_target:
+            relation, _ = Follower.objects.get_or_create(follower=author, following=remote_target)
+            if relation.status != "accepted":
+                relation.status = "pending"
+                relation.save(update_fields=["status"])
 
         data = {
             "type": "follow",
             "actor": {
                 "type": "author",
-                "id": author.id,
-                "displayName": author.displayName,
-                "host": author.host,
-                "url": author.url
+                "id": f"{settings.SITE_URL}/authors/api/authors/{author.id}",
+                "displayName": author.displayName or author.username,
+                "host": settings.SITE_URL,
+                "url": f"{settings.SITE_URL}/authors/api/authors/{author.id}",
             },
             "object": author_url
         }
 
         inbox_url = author_url.rstrip("/") + "/inbox/"
+        node_url = _host_from_author_url(author_url)
+        auth = _auth_for_node(node_url) if node_url else None
 
-        requests.post(inbox_url, json=data)
+        try:
+            requests.post(inbox_url, json=data, auth=auth, timeout=5)
+        except Exception:
+            pass
 
         return redirect("author-search")
 
@@ -371,6 +389,14 @@ def accept_follow_request(request, pk):
         notification_type="follow_accepted",
         message=f"{author.displayName or author.username} accepted your follow request",
     )
+
+    if follower.is_remote and follower.remote_id:
+        payload = {
+            "type": "follow_accepted",
+            "actor": _local_author_payload(author),
+            "object": follower.remote_id,
+        }
+        _post_remote_inbox(follower.remote_id, payload)
 
     return redirect("author-profile", pk=author.pk)
 
@@ -498,6 +524,147 @@ def _try_get_json(url, auth=None, timeout=5):
         pass
     return None
 
+
+def _host_from_author_url(author_url):
+    try:
+        parsed = urlparse(author_url)
+        if not parsed.scheme or not parsed.netloc:
+            return None
+        return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    except Exception:
+        return None
+
+
+def _auth_for_node(node_url):
+    # Federation: per-node basic auth credentials are configured in settings via env.
+    if not node_url:
+        return None
+    creds = getattr(settings, "REMOTE_NODE_CREDENTIALS", {}) or {}
+    info = creds.get(node_url.rstrip("/"))
+    if info and info.get("username") and info.get("password"):
+        return (info["username"], info["password"])
+    return None
+
+
+def _remote_username_seed(remote_id):
+    return f"remote_{str(abs(hash(remote_id)))[:20]}"
+
+
+def _upsert_remote_author(author_payload):
+    if not isinstance(author_payload, dict):
+        return None
+
+    remote_id = (author_payload.get("id") or author_payload.get("url") or "").strip()
+    if not remote_id:
+        return None
+
+    host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
+    display_name = (author_payload.get("displayName") or author_payload.get("username") or "Remote Author").strip()
+
+    # We store a local proxy row for remote authors so follower relationships remain queryable.
+    remote_author = Author.objects.filter(remote_id=remote_id).first()
+    if remote_author:
+        changed = False
+        if display_name and remote_author.displayName != display_name:
+            remote_author.displayName = display_name
+            changed = True
+        if host and remote_author.host != host:
+            remote_author.host = host
+            changed = True
+        if changed:
+            remote_author.save(update_fields=["displayName", "host"])
+        return remote_author
+
+    username = _remote_username_seed(remote_id)
+    while Author.objects.filter(username=username).exists():
+        username = f"{username}_{uuid.uuid4().hex[:6]}"
+
+    remote_author = Author.objects.create(
+        username=username,
+        displayName=display_name,
+        host=host,
+        is_remote=True,
+        remote_id=remote_id,
+        is_approved=True,
+    )
+    remote_author.set_unusable_password()
+    remote_author.save(update_fields=["password"])
+    return remote_author
+
+
+def _local_author_payload(author):
+    base = settings.SITE_URL.rstrip("/")
+    author_url = f"{base}/authors/api/authors/{author.id}"
+    return {
+        "type": "author",
+        "id": author_url,
+        "url": author_url,
+        "host": base,
+        "displayName": author.displayName or author.username,
+    }
+
+
+def _post_remote_inbox(author_url, payload):
+    inbox_url = author_url.rstrip("/") + "/inbox/"
+    node_url = _host_from_author_url(author_url)
+    auth = _auth_for_node(node_url) if node_url else None
+    try:
+        resp = requests.post(inbox_url, json=payload, auth=auth, timeout=5)
+        return resp.status_code in [200, 201, 202]
+    except Exception:
+        return False
+
+
+@csrf_exempt
+def api_author_inbox(request, pk):
+    if request.method != "POST":
+        return JsonResponse({"detail": "Method not allowed."}, status=405)
+
+    target = get_object_or_404(Author, pk=pk)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+    activity_type = (payload.get("type") or "").lower()
+
+    # Handles remote follow request delivered to this author's inbox.
+    if activity_type == "follow":
+        actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        remote_follower = _upsert_remote_author(actor_payload)
+        if not remote_follower:
+            return JsonResponse({"detail": "Invalid actor payload."}, status=400)
+
+        relation, _ = Follower.objects.get_or_create(
+            follower=remote_follower,
+            following=target,
+        )
+        if relation.status != "accepted":
+            relation.status = "pending"
+            relation.save(update_fields=["status"])
+
+        return JsonResponse({"detail": "Follow request received."}, status=201)
+
+    # Handles acceptance callback so the requester node can mark status=accepted locally.
+    if activity_type == "follow_accepted":
+        actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        remote_target = _upsert_remote_author(actor_payload)
+        if not remote_target:
+            return JsonResponse({"detail": "Invalid actor payload."}, status=400)
+
+        # Robustness: if pending edge is missing locally (restarts/manual tests), create it.
+        relation, _ = Follower.objects.get_or_create(
+            follower=target,
+            following=remote_target,
+        )
+        relation.status = "accepted"
+        relation.save(update_fields=["status"])
+
+        return JsonResponse({"detail": "Follow accepted received."}, status=200)
+
+    return JsonResponse({"detail": "Unsupported activity type."}, status=400)
+
 @login_required
 def author_search(request):
     query = request.GET.get("q", "").strip()
@@ -522,7 +689,7 @@ def author_search(request):
         for node in settings.REMOTE_NODES:
             url = f"{node}/authors/api/authors/?search={query}"
 
-            data = _try_get_json(url)
+            data = _try_get_json(url, auth=_auth_for_node(node))
             if not data:
                 continue
 

@@ -14,6 +14,19 @@ from .models import Comment, Like, Post
 
 
 def _author_obj(author: Author, request):
+    # Federation safety: remote artifacts can exist without a local Author relation.
+    # Return a minimal placeholder instead of raising when author is None.
+    if not author:
+        return {
+            "type": "author",
+            "id": "",
+            "host": request.build_absolute_uri("/"),
+            "displayName": "Remote Author",
+            "url": "",
+            "github": "",
+            "profileImage": "",
+        }
+
     author_path = reverse("author-profile", kwargs={"pk": author.id})
     fqid = request.build_absolute_uri(author_path)
     return {
@@ -140,7 +153,18 @@ def _comment_obj(comment: Comment, request):
         },
     )
 
-    author_obj = _author_obj(comment.author, request)
+    if comment.author:
+        author_obj = _author_obj(comment.author, request)
+    else:
+        author_obj = {
+            "type": "author",
+            "id": comment.remote_author_url or "",
+            "host": comment.remote_author_host or "",
+            "displayName": comment.remote_author_name or "Remote Author",
+            "url": comment.remote_author_url or "",
+            "github": "",
+            "profileImage": "",
+        }
 
     return {
         "type": "comment",
@@ -436,7 +460,8 @@ def stream_api(request):
     ).values_list("following_id", flat=True)
 
     posts = (
-        Post.objects.filter(deleted=False)
+        # This endpoint serves local API resources (uuid route contract requires local authors).
+        Post.objects.filter(deleted=False, is_remote=False)
         .filter(
             Q(author=request.user)
             | Q(visibility=Post.Visibility.PUBLIC)

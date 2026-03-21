@@ -82,10 +82,14 @@
 
                                 {% else %}
 
-                                    <a href="{% url 'send-follow-request' profile_user.id %}"
-                                    style="padding:6px 12px; background:#3b82f6; color:white; border-radius:8px; text-decoration:none;">
-                                    Follow
-                                    </a>
+                                    <form method="POST" action="{% url 'send-follow-request' %}" style="display:inline;">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="is_remote" value="False">
+                                        <input type="hidden" name="uuid" value="{{ profile_user.id }}">
+                                        <button type="submit" style="padding:6px 12px; background:#3b82f6; color:white; border-radius:8px; text-decoration:none; border:0; cursor:pointer;">
+                                            Follow
+                                        </button>
+                                    </form>
 
                                 {% endif %}
 

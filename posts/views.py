@@ -484,7 +484,8 @@ def stream(request):
         "posts/stream.html",
         {
             "posts": all_posts,
-            "feed_title": "Federated Stream",
+            # Keep legacy title for test and UI compatibility.
+            "feed_title": "Public Stream",
         },
     )
 
