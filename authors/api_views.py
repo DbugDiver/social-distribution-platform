@@ -56,6 +56,12 @@ def api_get_all_authors(request):
     items = []
     for author in page_obj:
         author_url = f"{base_url}/authors/api/authors/{author.id}"
+        profile_image = ""
+        if getattr(author, "profileImage", None):
+            try:
+                profile_image = request.build_absolute_uri(author.profileImage.url)
+            except Exception:
+                profile_image = ""
 
         items.append({
             "type": "author",
@@ -64,7 +70,7 @@ def api_get_all_authors(request):
             "host": base_url,   
             "displayName": author.displayName or author.username,
             "github": author.github or "",
-            "profileImage": author.profileImage or "",
+            "profileImage": profile_image,
         })
 
     return Response({
