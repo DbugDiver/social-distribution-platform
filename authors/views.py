@@ -32,6 +32,30 @@ def home_feed(request):
 def author_profile(request, pk):
     """Authors Page with github activity and posts feed"""
     author = get_object_or_404(Author, pk=pk)
+    remote_profile_image_url = ""
+
+    # For remote proxy rows, hydrate details from the canonical remote author endpoint.
+    if author.is_remote and author.remote_id:
+        node_url = _host_from_author_url(author.remote_id)
+        remote_doc = _try_get_json(author.remote_id, auth=_auth_for_node(node_url))
+        if isinstance(remote_doc, dict):
+            remote_display_name = (remote_doc.get("displayName") or "").strip()
+            remote_username = (remote_doc.get("username") or "").strip()
+            remote_github = (remote_doc.get("github") or "").strip()
+            remote_bio = (remote_doc.get("bio") or "").strip()
+            remote_profile_image_url = (remote_doc.get("profileImage") or "").strip()
+
+            if remote_display_name:
+                author.displayName = remote_display_name
+            if remote_username:
+                author.username = remote_username
+            if remote_github:
+                author.github = remote_github
+            if remote_bio:
+                author.bio = remote_bio
+            if remote_profile_image_url.startswith("/") and node_url:
+                remote_profile_image_url = f"{node_url}{remote_profile_image_url}"
+
     is_following = False
     follow_status = None
 
@@ -179,15 +203,6 @@ def author_profile(request, pk):
                     cache.set(cache_key, github_events, 300)
             except:
                 pass
-
-    remote_profile_image_url = ""
-    if author.is_remote and author.remote_id:
-        node_url = _host_from_author_url(author.remote_id)
-        remote_doc = _try_get_json(author.remote_id, auth=_auth_for_node(node_url))
-        if isinstance(remote_doc, dict):
-            remote_profile_image_url = (remote_doc.get("profileImage") or "").strip()
-            if remote_profile_image_url.startswith("/") and node_url:
-                remote_profile_image_url = f"{node_url}{remote_profile_image_url}"
 
     context = {
         "profile_user": author,
