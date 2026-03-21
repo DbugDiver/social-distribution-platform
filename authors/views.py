@@ -464,7 +464,7 @@ def unfollow(request, pk):
         Author, pk=pk
     )  # get the author that the user wants to unfollow, if the author does not exist, return a 404 error
     
-    # Delete the follower relationship
+    # Delete the local follower relationship.
     Follower.objects.filter(follower=author, following=following).delete()
     
     # Clean up any notifications related to this follow relationship
@@ -473,6 +473,15 @@ def unfollow(request, pk):
         sender=following,
         notification_type__in=["follow_request", "follow", "follow_accepted"]
     ).delete()
+
+    # Federation: notify remote node so it can remove reciprocal relation there too.
+    if following.is_remote and following.remote_id:
+        payload = {
+            "type": "unfollow",
+            "actor": _local_author_payload(author),
+            "object": following.remote_id,
+        }
+        _post_remote_inbox(following.remote_id, payload)
     
     return redirect("author-profile", pk=pk)
 
@@ -591,10 +600,18 @@ def _upsert_remote_author(author_payload):
         return None
 
     host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
-    # Ensure we get displayName; it's the primary identifier for remote authors
+    # Ensure we get displayName; it's the primary identifier for remote authors.
     display_name = (author_payload.get("displayName") or "").strip()
     if not display_name:
         display_name = (author_payload.get("username") or "").strip()
+
+    # Fallback: resolve from remote author endpoint when payload omits names.
+    if not display_name:
+        node_url = _host_from_author_url(remote_id)
+        remote_doc = _try_get_json(remote_id, auth=_auth_for_node(node_url))
+        if isinstance(remote_doc, dict):
+            display_name = (remote_doc.get("displayName") or remote_doc.get("username") or "").strip()
+
     if not display_name:
         display_name = "Remote Author"
 
@@ -677,24 +694,25 @@ def api_author_inbox(request, pk):
             follower=remote_follower,
             following=target,
         )
-        if relation.status != "accepted":
-            relation.status = "pending"
-            relation.save(update_fields=["status"])
+        # If already accepted, do not create follow-request notifications.
+        if relation.status == "accepted":
+            return JsonResponse({"detail": "Already following."}, status=200)
 
-        # Only create notification if one doesn't already exist for this follower
-        notification_exists = Notification.objects.filter(
+        relation.status = "pending"
+        relation.save(update_fields=["status"])
+
+        # Keep exactly one active follow notification for this sender-recipient pair.
+        Notification.objects.filter(
             recipient=target,
             sender=remote_follower,
-            notification_type__in=["follow", "follow_request"]
-        ).exists()
-        
-        if not notification_exists:
-            Notification.objects.create(
-                recipient=target,
-                sender=remote_follower,
-                notification_type="follow",
-                message=f"{remote_follower.displayName or remote_follower.username} wants to follow you.",
-            )
+            notification_type__in=["follow", "follow_request"],
+        ).delete()
+        Notification.objects.create(
+            recipient=target,
+            sender=remote_follower,
+            notification_type="follow",
+            message=f"{remote_follower.displayName or remote_follower.username} wants to follow you.",
+        )
 
         return JsonResponse({"detail": "Follow request received."}, status=201)
 
@@ -714,6 +732,22 @@ def api_author_inbox(request, pk):
         relation.save(update_fields=["status"])
 
         return JsonResponse({"detail": "Follow accepted received."}, status=200)
+
+    # Handles remote unfollow callback so friendship state updates on this node.
+    if activity_type == "unfollow":
+        actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        remote_follower = _upsert_remote_author(actor_payload)
+        if not remote_follower:
+            return JsonResponse({"detail": "Invalid actor payload."}, status=400)
+
+        Follower.objects.filter(follower=remote_follower, following=target).delete()
+        Notification.objects.filter(
+            recipient=target,
+            sender=remote_follower,
+            notification_type__in=["follow", "follow_request", "follow_accepted"],
+        ).delete()
+
+        return JsonResponse({"detail": "Unfollow received."}, status=200)
 
     return JsonResponse({"detail": "Unsupported activity type."}, status=400)
 
