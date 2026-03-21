@@ -7,17 +7,34 @@
             Results for "<strong>{{ query }}</strong>"
         {% endif %}
     </div>
+
     {% for author in results %}
         <div class="post-card">
             <div class="post-header">
                 <div class="avatar"></div>
                 <div>
                     <div class="author">
-                        <a href="{% url 'author-profile' author.id %}">{{ author.displayName|default:author.username }}</a>
+                        {{ author.displayName }}
                     </div>
+
                     <div class="timestamp">
-                        @{{ author.username }}
+                        @{{ author.displayName }}
                     </div>
+
+                    <!-- ✅ ONE FOLLOW BUTTON -->
+                    <form method="POST" action="{% url 'send-follow-request' %}">
+                        {% csrf_token %}
+
+                        <input type="hidden" name="author_id" value="{{ author.id }}">
+                        <input type="hidden" name="is_remote" value="{{ author.is_remote }}">
+
+                        {% if not author.is_remote %}
+                            <input type="hidden" name="uuid" value="{{ author.uuid }}">
+                        {% endif %}
+
+                        <button type="submit">Follow</button>
+                    </form>
+
                 </div>
             </div>
         </div>

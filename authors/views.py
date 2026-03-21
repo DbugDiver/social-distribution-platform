@@ -1,8 +1,8 @@
 from datetime import datetime
 from socket import timeout
 from django.views.decorators.csrf import csrf_exempt
-
-
+from django.conf import settings
+from urllib.parse import unquote
 import markdown as md  # If you are rendering markdown here
 import requests
 from django.contrib.auth import authenticate, login
@@ -281,24 +281,43 @@ def edit_profile(request, author_id=None):
     return render(request, "authors/edit_profile.html", {"form": form})
 
 
+
 @login_required
-def send_a_follow_request(request, pk):
-    """Send a follow request to another author"""
-    author = request.user
-    following = get_object_or_404(Author, pk=pk)
+def send_a_follow_request(request):
+    author = request.user.author  # adjust if needed
 
-    if author == following:
-        return redirect("author-profile", pk=pk)
+    is_remote = request.POST.get("is_remote") == "True"
 
-    follow = Follower.objects.filter(
-        follower=author,
-        following=following
-    ).first()
+    if not is_remote:
+        # 🏠 LOCAL (your original logic)
+        pk = request.POST.get("uuid")
+        following = get_object_or_404(Author, pk=pk)
 
-    if follow:
-        if follow.status == "rejected":
-            follow.status = "pending"
-            follow.save()
+        if author == following:
+            return redirect("author-search")
+
+        follow = Follower.objects.filter(
+            follower=author,
+            following=following
+        ).first()
+
+        if follow:
+            if follow.status == "rejected":
+                follow.status = "pending"
+                follow.save()
+
+                Notification.objects.create(
+                    recipient=following,
+                    sender=author,
+                    notification_type="follow_request",
+                    message=f"{author.displayName or author.username} wants to follow you.",
+                )
+        else:
+            Follower.objects.create(
+                follower=author,
+                following=following,
+                status="pending"
+            )
 
             Notification.objects.create(
                 recipient=following,
@@ -307,22 +326,29 @@ def send_a_follow_request(request, pk):
                 message=f"{author.displayName or author.username} wants to follow you.",
             )
 
+        return redirect("author-search")
+
     else:
-        Follower.objects.create(
-            follower=author,
-            following=following,
-            status="pending"
-        )
+        # 🌍 REMOTE FOLLOW
+        author_url = request.POST.get("author_id")
 
-        Notification.objects.create(
-            recipient=following,
-            sender=author,
-            notification_type="follow_request",
-            message=f"{author.displayName or author.username} wants to follow you.",
-        )
+        data = {
+            "type": "follow",
+            "actor": {
+                "type": "author",
+                "id": author.id,
+                "displayName": author.displayName,
+                "host": author.host,
+                "url": author.url
+            },
+            "object": author_url
+        }
 
-    return redirect("author-profile", pk=pk)
+        inbox_url = author_url.rstrip("/") + "/inbox/"
 
+        requests.post(inbox_url, json=data)
+
+        return redirect("author-search")
 
 @login_required
 def accept_follow_request(request, pk):
@@ -457,13 +483,58 @@ def inbox(request):
     return render(request, "authors/inbox.html", context)
 
 
+#-------------------------------Federation
+def _try_get_json(url, auth=None, timeout=5):
+    try:
+        resp = requests.get(
+            url,
+            auth=auth,
+            timeout=timeout,
+            headers={"Accept": "application/json"},
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
 @login_required
 def author_search(request):
-    query = request.GET.get("q", "")
+    query = request.GET.get("q", "").strip()
     results = []
+
     if query:
-        results = Author.objects.filter(
+        # LOCAL
+        local_users = Author.objects.filter(
             Q(username__icontains=query) | Q(displayName__icontains=query)
         ).exclude(id=request.user.id)
-    context = {"query": query, "results": results}
+
+        for user in local_users:
+            results.append({
+                "id": f"{settings.SITE_URL}/authors/api/authors/{user.id}",  
+                "displayName": user.displayName or user.username,
+                "host": settings.SITE_URL,
+                "is_remote": False,
+                "uuid": str(user.id)  
+            })
+
+        # REMOTE
+        for node in settings.REMOTE_NODES:
+            url = f"{node}/authors/api/authors/?search={query}"
+
+            data = _try_get_json(url)
+            if not data:
+                continue
+
+            items = data.get("items", [])  #
+
+            for author in items:
+                author["is_remote"] = True
+                results.append(author)
+
+    context = {
+        "query": query,
+        "results": results,
+    }
+
     return render(request, "authors/search_results.html", context)

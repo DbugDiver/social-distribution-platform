@@ -2,7 +2,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-
+from django.db.models import Q
+from django.core.paginator import EmptyPage, Paginator
 from django.shortcuts import get_object_or_404
 
 from .models import Author, Follower
@@ -15,12 +16,64 @@ from posts.models import Post
 # Get single author
 # GET /authors/api/authors/<pk>/
 # ---------------------------------------------------
-
 @api_view(["GET"])
 def api_get_author(request, pk):
     author=get_object_or_404(Author, pk=pk)
     serializer=AuthorSerializer(author)
     return Response(serializer.data)
+#----------------------------------------------------------
+# Search for author by name to add them
+#GET /api/authors/?search=<name>
+#GET /api/authors/?
+#GET /api/authors/?page=<int>&size=<int>
+#----------------------------------------------------------
+
+@api_view(["GET"])
+def api_get_all_authors(request):
+    query = request.GET.get("search", "").strip()
+    authors = Author.objects.filter(is_remote=False)
+
+    # SEARCH
+    if query:
+        authors = authors.filter(
+            Q(username__icontains=query) |
+            Q(displayName__icontains=query)
+        )
+
+    #  PAGINATION
+    try:
+        page = int(request.GET.get("page", 1))
+        size = int(request.GET.get("size", 5))
+    except ValueError:
+        page = 1
+        size = 5
+
+    paginator = Paginator(authors, size)
+    page_obj = paginator.get_page(page)
+
+    base_url = request.build_absolute_uri("/").rstrip("/")
+
+    items = []
+    for author in page_obj:
+        author_url = f"{base_url}/authors/api/authors/{author.id}"
+
+        items.append({
+            "type": "author",
+            "id": author_url,
+            "url": author_url, 
+            "host": base_url,   
+            "displayName": author.displayName or author.username,
+            "github": author.github or "",
+            "profileImage": author.profileImage or "",
+        })
+
+    return Response({
+        "type": "authors",
+        "count": paginator.count,
+        "page": page,
+        "size": size,
+        "items": items   
+    })
 # ---------------------------------------------------
 # Follow author
 # PUT /authors/api/authors/<pk>/follow/
