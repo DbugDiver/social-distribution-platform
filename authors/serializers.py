@@ -8,7 +8,8 @@ class AuthorSerializer(serializers.ModelSerializer):
         model=Author
         fields=["id","host","username","displayName","github","bio","profileImage",]
     def get_id(self, obj):
-        return obj.get_fqid()
+        host = (obj.host or "").rstrip("/")
+        return f"{host}/authors/api/authors/{obj.id}"
 class FollowerSerializer(serializers.ModelSerializer):
     class Meta:
         model=Follower
