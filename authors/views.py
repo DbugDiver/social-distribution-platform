@@ -180,12 +180,22 @@ def author_profile(request, pk):
             except:
                 pass
 
+    remote_profile_image_url = ""
+    if author.is_remote and author.remote_id:
+        node_url = _host_from_author_url(author.remote_id)
+        remote_doc = _try_get_json(author.remote_id, auth=_auth_for_node(node_url))
+        if isinstance(remote_doc, dict):
+            remote_profile_image_url = (remote_doc.get("profileImage") or "").strip()
+            if remote_profile_image_url.startswith("/") and node_url:
+                remote_profile_image_url = f"{node_url}{remote_profile_image_url}"
+
     context = {
         "profile_user": author,
         "posts": posts,
         "github_events": github_events,
         "is_following": is_following,
         "follow_status": follow_status,
+        "remote_profile_image_url": remote_profile_image_url,
     }
 
     return render(request, "authors/profile.html", context)
