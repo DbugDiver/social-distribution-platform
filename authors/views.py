@@ -464,8 +464,15 @@ def unfollow(request, pk):
         Author, pk=pk
     )  # get the author that the user wants to unfollow, if the author does not exist, return a 404 error
     
-    # Delete the local follower relationship.
+    # Delete local follower relationship(s).
     Follower.objects.filter(follower=author, following=following).delete()
+
+    # Robustness: if duplicate proxy rows exist for the same remote author, remove all of them.
+    if following.is_remote and following.remote_id:
+        Follower.objects.filter(
+            follower=author,
+            following__remote_id=following.remote_id,
+        ).delete()
     
     # Clean up any notifications related to this follow relationship
     Notification.objects.filter(
@@ -473,6 +480,13 @@ def unfollow(request, pk):
         sender=following,
         notification_type__in=["follow_request", "follow", "follow_accepted"]
     ).delete()
+
+    if following.is_remote and following.remote_id:
+        Notification.objects.filter(
+            recipient=author,
+            sender__remote_id=following.remote_id,
+            notification_type__in=["follow_request", "follow", "follow_accepted"],
+        ).delete()
 
     # Federation: notify remote node so it can remove reciprocal relation there too.
     if following.is_remote and following.remote_id:
@@ -741,11 +755,23 @@ def api_author_inbox(request, pk):
             return JsonResponse({"detail": "Invalid actor payload."}, status=400)
 
         Follower.objects.filter(follower=remote_follower, following=target).delete()
+        if remote_follower.remote_id:
+            Follower.objects.filter(
+                follower__remote_id=remote_follower.remote_id,
+                following=target,
+            ).delete()
+
         Notification.objects.filter(
             recipient=target,
             sender=remote_follower,
             notification_type__in=["follow", "follow_request", "follow_accepted"],
         ).delete()
+        if remote_follower.remote_id:
+            Notification.objects.filter(
+                recipient=target,
+                sender__remote_id=remote_follower.remote_id,
+                notification_type__in=["follow", "follow_request", "follow_accepted"],
+            ).delete()
 
         return JsonResponse({"detail": "Unfollow received."}, status=200)
 
