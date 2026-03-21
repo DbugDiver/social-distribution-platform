@@ -591,7 +591,12 @@ def _upsert_remote_author(author_payload):
         return None
 
     host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
-    display_name = (author_payload.get("displayName") or author_payload.get("username") or "Remote Author").strip()
+    # Ensure we get displayName; it's the primary identifier for remote authors
+    display_name = (author_payload.get("displayName") or "").strip()
+    if not display_name:
+        display_name = (author_payload.get("username") or "").strip()
+    if not display_name:
+        display_name = "Remote Author"
 
     # We store a local proxy row for remote authors so follower relationships remain queryable.
     remote_author = Author.objects.filter(remote_id=remote_id).first()
@@ -676,12 +681,20 @@ def api_author_inbox(request, pk):
             relation.status = "pending"
             relation.save(update_fields=["status"])
 
-        Notification.objects.create(
+        # Only create notification if one doesn't already exist for this follower
+        notification_exists = Notification.objects.filter(
             recipient=target,
             sender=remote_follower,
-            notification_type="follow",
-            message=f"{remote_follower.displayName or remote_follower.username} wants to follow you.",
-        )
+            notification_type__in=["follow", "follow_request"]
+        ).exists()
+        
+        if not notification_exists:
+            Notification.objects.create(
+                recipient=target,
+                sender=remote_follower,
+                notification_type="follow",
+                message=f"{remote_follower.displayName or remote_follower.username} wants to follow you.",
+            )
 
         return JsonResponse({"detail": "Follow request received."}, status=201)
 
