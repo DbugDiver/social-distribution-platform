@@ -2,9 +2,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from django.conf import settings
 from django.db.models import Q
 from django.core.paginator import EmptyPage, Paginator
 from django.shortcuts import get_object_or_404
+import requests
 
 from .models import Author, Follower
 from .serializers import AuthorSerializer
@@ -31,16 +33,17 @@ def api_get_author(request, pk):
 @api_view(["GET"])
 def api_get_all_authors(request):
     query = request.GET.get("search", "").strip()
-    authors = Author.objects.filter(is_remote=False)
+    include_remote_lookup = request.GET.get("_federated", "0") != "1"
 
-    # SEARCH
+    # Start with local authors only; federated lookup appends canonical remote results.
+    authors = Author.objects.filter(is_remote=False)
     if query:
         authors = authors.filter(
             Q(username__icontains=query) |
             Q(displayName__icontains=query)
         )
 
-    #  PAGINATION
+    # PAGINATION
     try:
         page = int(request.GET.get("page", 1))
         size = int(request.GET.get("size", 5))
@@ -48,13 +51,13 @@ def api_get_all_authors(request):
         page = 1
         size = 5
 
-    paginator = Paginator(authors, size)
-    page_obj = paginator.get_page(page)
-
     base_url = request.build_absolute_uri("/").rstrip("/")
 
+    seen_ids = set()
     items = []
-    for author in page_obj:
+
+    # Local and cached remote-proxy authors in this node DB.
+    for author in authors:
         author_url = f"{base_url}/authors/api/authors/{author.id}"
         profile_image = ""
         if getattr(author, "profileImage", None):
@@ -63,22 +66,57 @@ def api_get_all_authors(request):
             except Exception:
                 profile_image = ""
 
+        if author_url in seen_ids:
+            continue
+        seen_ids.add(author_url)
+
         items.append({
             "type": "author",
             "id": author_url,
             "url": author_url, 
             "host": base_url,   
+            "username": author.username,
             "displayName": author.displayName or author.username,
+            "bio": author.bio or "",
             "github": author.github or "",
             "profileImage": profile_image,
         })
+
+    # Federation lookup: include remote matches directly from peer nodes.
+    if query and include_remote_lookup:
+        for node in getattr(settings, "REMOTE_NODES", []):
+            node = (node or "").rstrip("/")
+            if not node:
+                continue
+            remote_url = f"{node}/authors/api/authors/?search={query}&_federated=1&page=1&size={size}"
+            try:
+                resp = requests.get(
+                    remote_url,
+                    timeout=5,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.status_code != 200:
+                    continue
+                remote_data = resp.json()
+                for entry in remote_data.get("items", []):
+                    remote_id = (entry.get("id") or "").strip()
+                    if not remote_id or remote_id in seen_ids:
+                        continue
+                    seen_ids.add(remote_id)
+                    entry["host"] = (entry.get("host") or node).rstrip("/")
+                    items.append(entry)
+            except Exception:
+                continue
+
+    paginator = Paginator(items, size)
+    page_obj = paginator.get_page(page)
 
     return Response({
         "type": "authors",
         "count": paginator.count,
         "page": page,
         "size": size,
-        "items": items   
+        "items": list(page_obj.object_list)
     })
 # ---------------------------------------------------
 # Follow author
