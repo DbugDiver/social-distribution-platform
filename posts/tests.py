@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from django.test import TestCase
@@ -118,6 +119,47 @@ class CommentsLikesApiTests(TestCase):
 		response = self.client.post(self._comment_likes_url(self.public_post, comment))
 		self.assertEqual(response.status_code, 201)
 		self.assertEqual(response.json()["type"], "like")
+
+	def test_remote_comment_unlike_falls_back_to_normalized_author_url(self):
+		comment = Comment.objects.create(
+			post=self.public_post,
+			author=self.author,
+			comment="remote-like-target",
+		)
+		Like.objects.create(
+			is_remote=True,
+			comment=comment,
+			remote_id="https://node1.example/api/likes/original-like",
+			remote_author_url="https://node2.example/authors/api/authors/abc123",
+			remote_author_name="Remote User",
+			remote_author_host="https://node2.example/",
+		)
+
+		url = reverse(
+			"posts:api-public-comment-likes",
+			kwargs={
+				"author_id": self.public_post.author_id,
+				"post_id": self.public_post.id,
+				"comment_id": comment.id,
+			},
+		)
+		payload = {
+			"id": "https://node1.example/api/likes/new-like-id",
+			"author": {
+				"id": "https://node2.example/authors/abc123",
+				"host": "https://node2.example/",
+				"displayName": "Remote User",
+			},
+		}
+		response = self.client.delete(
+			url,
+			data=json.dumps(payload),
+			content_type="application/json",
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.json()["deleted"], 1)
+		self.assertFalse(Like.objects.filter(comment=comment, is_remote=True).exists())
 
 	def test_public_entry_returns_likes_summary(self):
 		Like.objects.create(author=self.reader, post=self.public_post)
