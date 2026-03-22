@@ -901,7 +901,32 @@ def public_post_likes_api(request, author_id, post_id):
         like, created = Like.objects.get_or_create(author=request.user, post=post)
         return JsonResponse(_like_obj_public(like, request), status=201 if created else 200)
 
-    return HttpResponseNotAllowed(["GET", "POST"])
+    if request.method == "DELETE":
+        if request.content_type == "application/json":
+            try:
+                payload = json.loads(request.body.decode("utf-8"))
+            except Exception:
+                return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+            author_payload = _remote_author_obj_from_payload(payload.get("author"))
+            remote_id = payload.get("id") or payload.get("remote_id") or None
+
+            qs = Like.objects.filter(post=post, is_remote=True)
+            if remote_id:
+                qs = qs.filter(remote_id=remote_id)
+            else:
+                qs = qs.filter(remote_author_url=author_payload["id"])
+
+            deleted, _ = qs.delete()
+            return JsonResponse({"deleted": deleted}, status=200)
+
+        if not request.user.is_authenticated:
+            return JsonResponse({"detail": "Login required."}, status=403)
+
+        deleted, _ = Like.objects.filter(author=request.user, post=post).delete()
+        return JsonResponse({"deleted": deleted}, status=200)
+
+    return HttpResponseNotAllowed(["GET", "POST", "DELETE"])
 
 
 @csrf_exempt
@@ -960,4 +985,29 @@ def public_comment_likes_api(request, author_id, post_id, comment_id):
         like, created = Like.objects.get_or_create(author=request.user, comment=comment)
         return JsonResponse(_like_obj_public(like, request), status=201 if created else 200)
 
-    return HttpResponseNotAllowed(["GET", "POST"])
+    if request.method == "DELETE":
+        if request.content_type == "application/json":
+            try:
+                payload = json.loads(request.body.decode("utf-8"))
+            except Exception:
+                return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+            author_payload = _remote_author_obj_from_payload(payload.get("author"))
+            remote_id = payload.get("id") or payload.get("remote_id") or None
+
+            qs = Like.objects.filter(comment=comment, is_remote=True)
+            if remote_id:
+                qs = qs.filter(remote_id=remote_id)
+            else:
+                qs = qs.filter(remote_author_url=author_payload["id"])
+
+            deleted, _ = qs.delete()
+            return JsonResponse({"deleted": deleted}, status=200)
+
+        if not request.user.is_authenticated:
+            return JsonResponse({"detail": "Login required."}, status=403)
+
+        deleted, _ = Like.objects.filter(author=request.user, comment=comment).delete()
+        return JsonResponse({"deleted": deleted}, status=200)
+
+    return HttpResponseNotAllowed(["GET", "POST", "DELETE"])

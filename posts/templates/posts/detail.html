@@ -96,7 +96,7 @@
               <input type="hidden" name="remote_comment_id" value="{{ comment.id }}">
               <input type="hidden" name="remote_likes_url" value="{{ comment.likes_url|default:'' }}">
               <button type="submit" class="comment-like-btn" aria-label="Like remote comment">
-                🤍 {{ comment.like_count|default:0 }}
+                {% if comment.liked_by_me %}❤️{% else %}🤍{% endif %} {{ comment.like_count|default:0 }}
               </button>
             </form>
           </div>

@@ -123,6 +123,27 @@ def _try_post_json(url, payload, auth=None, timeout=5):
         return False
 
 
+def _normalize_author_id(value):
+    raw = (value or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    # Treat /authors/<id> and /authors/api/authors/<id> as the same identity.
+    return raw.replace("/authors/api/authors/", "/authors/")
+
+
+def _remote_like_matches_user(raw_like, user):
+    author = raw_like.get("author", {}) if isinstance(raw_like.get("author"), dict) else {}
+    candidate_ids = {
+        _normalize_author_id(author.get("id")),
+        _normalize_author_id(author.get("url")),
+    }
+    local_ids = {
+        _normalize_author_id(f"{_site_url()}/authors/{user.id}"),
+        _normalize_author_id(f"{_site_url()}/authors/api/authors/{user.id}"),
+    }
+    return bool(candidate_ids.intersection(local_ids))
+
+
 def _parse_datetime(value):
     from datetime import datetime
     from django.utils import timezone
@@ -272,7 +293,7 @@ def _local_author_payload(user):
         "url": f"{base}/authors/{user.id}",
     }
     
-def _fetch_remote_comments(post):
+def _fetch_remote_comments(post, viewer=None):
     comments_url = getattr(post, "remote_comments_url", "") or ""
 
     if not comments_url:
@@ -304,6 +325,16 @@ def _fetch_remote_comments(post):
                 comment_likes_url = f"{comment_id.rstrip('/')}/likes/"
             else:
                 comment_likes_url = f"{base_comments_url}/{comment_id}/likes/"
+        liked_by_me = False
+        if viewer and comment_likes_url:
+            likes_data = _try_get_json(
+                comment_likes_url,
+                auth=(_auth_for_node(post.node_url.rstrip("/")) if post.node_url else None),
+            )
+            likes_items = likes_data.get("src", likes_data.get("items", [])) if isinstance(likes_data, dict) else likes_data
+            if isinstance(likes_items, list):
+                liked_by_me = any(_remote_like_matches_user(item, viewer) for item in likes_items if isinstance(item, dict))
+
         normalized.append({
             "id": comment_id,
             "comment": raw.get("comment", ""),
@@ -312,6 +343,7 @@ def _fetch_remote_comments(post):
             "author_name": author.get("displayName") or author.get("username") or "Remote Author",
             "like_count": likes_obj.get("count", 0),
             "likes_url": comment_likes_url,
+            "liked_by_me": liked_by_me,
         })
     return normalized
 
@@ -340,6 +372,7 @@ def _fetch_remote_likes(post):
         author = raw.get("author", {}) if isinstance(raw.get("author"), dict) else {}
         normalized.append({
             "id": raw.get("id"),
+            "author_id": author.get("id") or author.get("url") or "",
             "author_name": author.get("displayName") or author.get("username") or "Remote Author",
             "summary": raw.get("summary", ""),
             "published": raw.get("published", ""),
@@ -407,17 +440,39 @@ def _send_remote_like(user, post):
     auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
 
     try:
-        resp = requests.post(
-            likes_url,
-            json=payload,
-            auth=auth,
-            timeout=5,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
+        existing = _try_get_json(likes_url, auth=auth)
+        existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
+        already_liked = isinstance(existing_items, list) and any(
+            isinstance(item, dict) and (
+                str(item.get("id") or "").strip() == stable_like_id
+                or _remote_like_matches_user(item, user)
+            )
+            for item in existing_items
         )
-        return resp.status_code in [200, 201, 202]
+
+        if already_liked:
+            resp = requests.delete(
+                likes_url,
+                json=payload,
+                auth=auth,
+                timeout=5,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+            )
+        else:
+            resp = requests.post(
+                likes_url,
+                json=payload,
+                auth=auth,
+                timeout=5,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+            )
+        return resp.status_code in [200, 201, 202, 204]
     except Exception as e:
         return False
 
@@ -455,17 +510,39 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
 
     auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
     try:
-        resp = requests.post(
-            likes_url,
-            json=payload,
-            auth=auth,
-            timeout=5,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
+        existing = _try_get_json(likes_url, auth=auth)
+        existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
+        already_liked = isinstance(existing_items, list) and any(
+            isinstance(item, dict) and (
+                str(item.get("id") or "").strip() == stable_like_id
+                or _remote_like_matches_user(item, user)
+            )
+            for item in existing_items
         )
-        return resp.status_code in [200, 201, 202]
+
+        if already_liked:
+            resp = requests.delete(
+                likes_url,
+                json=payload,
+                auth=auth,
+                timeout=5,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+            )
+        else:
+            resp = requests.post(
+                likes_url,
+                json=payload,
+                auth=auth,
+                timeout=5,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+            )
+        return resp.status_code in [200, 201, 202, 204]
     except Exception:
         return False
 
@@ -521,13 +598,16 @@ def stream(request):
             p.rendered = None
 
         if p.is_remote:
-            remote_comments = _fetch_remote_comments(p)
+            remote_comments = _fetch_remote_comments(p, viewer=user)
             remote_likes = _fetch_remote_likes(p)
             p.remote_comment_list = remote_comments[:3]
             p.remote_like_list = remote_likes
             p.comment_count = len(remote_comments)
             p.like_count = len(remote_likes)
-            p.liked_by_me = False
+            p.liked_by_me = any(_normalize_author_id(l.get("author_id")) in {
+                _normalize_author_id(f"{_site_url()}/authors/{user.id}"),
+                _normalize_author_id(f"{_site_url()}/authors/api/authors/{user.id}"),
+            } for l in remote_likes)
             p.comment_list = []
         else:
             p.like_count = p.likes.count()
@@ -569,8 +649,12 @@ def detail(request, post_id):
         rendered = None
 
     if post.is_remote:
-        remote_comments = _fetch_remote_comments(post)
+        remote_comments = _fetch_remote_comments(post, viewer=request.user)
         remote_likes = _fetch_remote_likes(post)
+        post_liked_by_me = any(_normalize_author_id(l.get("author_id")) in {
+            _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
+            _normalize_author_id(f"{_site_url()}/authors/api/authors/{request.user.id}"),
+        } for l in remote_likes)
 
         return render(
             request,
@@ -581,7 +665,7 @@ def detail(request, post_id):
                 "comments": [],
                 "remote_comments": remote_comments,
                 "remote_likes": remote_likes,
-                "post_liked_by_me": False,
+                "post_liked_by_me": post_liked_by_me,
             },
         )
 
@@ -691,7 +775,11 @@ def like_post(request, post_id):
     else:
         if not _can_interact_with_post(request.user, post):
             return HttpResponseForbidden("Not allowed.")
-        Like.objects.get_or_create(author=request.user, post=post)
+        existing = Like.objects.filter(author=request.user, post=post).first()
+        if existing:
+            existing.delete()
+        else:
+            Like.objects.create(author=request.user, post=post)
 
     next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("posts:detail", post_id=post.id).url
     return redirect(next_url)
@@ -714,7 +802,11 @@ def like_comment(request, post_id, comment_id):
     if not _can_interact_with_post(request.user, post):
         return HttpResponseForbidden("Not allowed.")
 
-    Like.objects.get_or_create(author=request.user, comment=comment)
+    existing = Like.objects.filter(author=request.user, comment=comment).first()
+    if existing:
+        existing.delete()
+    else:
+        Like.objects.create(author=request.user, comment=comment)
 
     next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("posts:detail", post_id=post.id).url
     return redirect(next_url)
