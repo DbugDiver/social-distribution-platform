@@ -670,7 +670,7 @@ def _comment_obj_public(comment: Comment, request):
             "type": "author",
             "id": comment.remote_author_url or "",
             "host": comment.remote_author_host or "",
-            "displayName": comment.remote_author_nsame or "Remote Author",
+            "displayName": comment.remote_author_name or "Remote Author",
             "url": comment.remote_author_url or "",
             "github": "",
             "profileImage": "",
