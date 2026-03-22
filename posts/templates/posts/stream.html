@@ -59,6 +59,12 @@
                   class="avatar"
                   alt="{{ post.display_author.display_name }} profile picture"
                 >
+              {% elif post.is_remote and post.remote_author_image %}
+                <img
+                  src="{{ post.remote_author_image }}"
+                  class="avatar"
+                  alt="{{ post.display_author.display_name }} profile picture"
+                >
               {% else %}
                 <span class="avatar" style="font-size: 2rem; display:inline-block; text-align:center; line-height:1; background:#e2e8f0; border-radius:50%;">
                   🧛
@@ -166,7 +172,9 @@
                   <div class="comment-item">
                     <div class="comment-text">
                       <strong>
-                        {% if comment.display_author.display_name %}
+                        {% if comment.author and comment.author.is_remote %}
+                          {{ comment.author.displayName|default:comment.author.username }}
+                        {% elif comment.display_author.display_name %}
                           {{ comment.display_author.display_name }}
                         {% elif comment.author %}
                           {{ comment.author.username }}

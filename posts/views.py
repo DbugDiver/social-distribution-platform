@@ -155,6 +155,7 @@ def _normalize_remote_post(raw, node_url):
         "remote_author_url": author.get("id") or author.get("url") or "",
         "remote_author_name": author.get("displayName") or author.get("username") or "Remote Author",
         "remote_author_host": author.get("host") or node_url.rstrip("/"),
+        "remote_author_image": author.get("profileImage") or "",
         "remote_comments_url": comments_obj.get("id") or "",
         "remote_likes_url": likes_obj.get("id") or "",
         "remote_comment_count": comments_obj.get("count", 0),
@@ -187,6 +188,7 @@ def _upsert_remote_post_cache(data):
      # attach transient attrs used by templates/views
     post.remote_comments_url = data["remote_comments_url"]
     post.remote_likes_url = data["remote_likes_url"]
+    post.remote_author_image = data.get("remote_author_image", "")
     post.remote_comment_count = data["remote_comment_count"]
     post.remote_like_count = data["remote_like_count"]
     return post

@@ -1,7 +1,9 @@
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 import json
+import requests
 
 from django.contrib.auth.decorators import login_required
+from django.conf import settings
 from django.core.paginator import EmptyPage, Paginator
 from django.db.models import Q
 from django.http import HttpResponseNotAllowed, JsonResponse
@@ -456,24 +458,98 @@ def like_detail_api(request, like_id):
     return JsonResponse(_like_obj(like, request), status=200)
 
 
+def _auth_for_node(node_url):
+    if not node_url:
+        return None
+    creds = getattr(settings, "REMOTE_NODE_CREDENTIALS", {}) or {}
+    info = creds.get(node_url.rstrip("/"))
+    if info and info.get("username") and info.get("password"):
+        return (info["username"], info["password"])
+    return None
+
+
+def _remote_author_obj_from_post(post: Post):
+    author_url = (post.remote_author_url or "").strip()
+    host = (post.remote_author_host or "").strip()
+    display_name = (post.remote_author_name or "Remote Author").strip()
+    github = ""
+    profile_image = ""
+
+    if author_url:
+        try:
+            parsed = urlparse(author_url)
+            node_url = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else host
+            fetch_url = author_url
+
+            # Remote posts may provide HTML profile URL; convert to API author URL for JSON fields.
+            if "/authors/api/authors/" not in fetch_url and "/authors/" in fetch_url:
+                fetch_url = fetch_url.replace("/authors/", "/authors/api/authors/")
+
+            resp = requests.get(
+                fetch_url,
+                auth=_auth_for_node(node_url),
+                timeout=3,
+                headers={"Accept": "application/json"},
+            )
+            if resp.status_code == 200 and isinstance(resp.json(), dict):
+                data = resp.json()
+                display_name = (data.get("displayName") or data.get("username") or display_name).strip()
+                github = (data.get("github") or "").strip()
+                profile_image = (data.get("profileImage") or "").strip()
+                if profile_image.startswith("/") and node_url:
+                    profile_image = f"{node_url}{profile_image}"
+        except Exception:
+            pass
+
+    return {
+        "type": "author",
+        "id": author_url,
+        "host": host,
+        "displayName": display_name,
+        "url": author_url,
+        "github": github,
+        "profileImage": profile_image,
+    }
+
+
 @login_required
 def stream_api(request):
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
+
+    # Pull latest remote public posts into local cache for API consumers.
+    try:
+        from .views import _fetch_remote_public_posts
+        _fetch_remote_public_posts()
+    except Exception:
+        pass
 
     following_ids = Follower.objects.filter(
         follower=request.user,
         status="accepted",
     ).values_list("following_id", flat=True)
 
+    followed_remote_author_urls = set(
+        Author.objects.filter(id__in=following_ids, is_remote=True)
+        .exclude(remote_id__isnull=True)
+        .exclude(remote_id="")
+        .values_list("remote_id", flat=True)
+    )
+
     posts = (
-        # This endpoint serves local API resources (uuid route contract requires local authors).
-        Post.objects.filter(deleted=False, is_remote=False)
+        Post.objects.filter(deleted=False)
         .filter(
-            Q(author=request.user)
-            | Q(visibility=Post.Visibility.PUBLIC)
+            Q(is_remote=False, author=request.user)
+            | Q(is_remote=False, visibility=Post.Visibility.PUBLIC)
             | Q(
+                is_remote=False,
                 author_id__in=following_ids,
+                visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
+            )
+            | Q(is_remote=True, visibility=Post.Visibility.PUBLIC)
+            | Q(
+                is_remote=True,
+                remote_author_url__in=followed_remote_author_urls,
                 visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
             )
         )
@@ -489,16 +565,20 @@ def stream_api(request):
         queryset=posts,
         serializer=lambda post, req: {
             "type": "entry",
-            "id": req.build_absolute_uri(
-                reverse(
-                    "posts:api-post-detail",
-                    kwargs={"author_id": post.author_id, "post_id": post.id},
+            "id": (
+                (post.remote_id or "")
+                if post.is_remote
+                else req.build_absolute_uri(
+                    reverse(
+                        "posts:api-post-detail",
+                        kwargs={"author_id": post.author_id, "post_id": post.id},
+                    )
                 )
             ),
             "title": post.title,
             "contentType": post.content_type,
             "content": post.content,
-            "author": _author_obj(post.author, req),
+            "author": _remote_author_obj_from_post(post) if post.is_remote else _author_obj(post.author, req),
             "visibility": post.visibility,
             "published": (post.published or post.created).isoformat(),
             "updated": post.updated.isoformat(),
