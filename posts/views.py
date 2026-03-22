@@ -1,4 +1,5 @@
 from datetime import datetime
+import hashlib
 from urllib.parse import urljoin
 
 import markdown as md
@@ -499,7 +500,8 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
         # Derive object from likes endpoint for remote servers that validate Like.object.
         comment_object = likes_url.rstrip("/").replace("/likes", "")
 
-    stable_like_id = f"{_site_url()}/federation/likes/{user.id}/{post.id}/{abs(hash(comment_object))}"
+    comment_fingerprint = hashlib.sha256(comment_object.encode("utf-8")).hexdigest()[:24]
+    stable_like_id = f"{_site_url()}/federation/likes/{user.id}/{post.id}/{comment_fingerprint}"
     payload = {
         "type": "like",
         "id": stable_like_id,

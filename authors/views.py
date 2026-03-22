@@ -95,8 +95,12 @@ def author_profile(request, pk):
             rid = author.remote_id.rstrip("/")
             remote_ids.add(rid)
             remote_ids.add(rid + "/")
-            remote_ids.add(rid.replace("/authors/api/authors/", "/authors/").rstrip("/"))
-            remote_ids.add(rid.replace("/authors/", "/authors/api/authors/").rstrip("/"))
+            rid_html = rid.replace("/authors/api/authors/", "/authors/").rstrip("/")
+            rid_api = rid.replace("/authors/", "/authors/api/authors/").rstrip("/")
+            remote_ids.add(rid_html)
+            remote_ids.add(rid_html + "/")
+            remote_ids.add(rid_api)
+            remote_ids.add(rid_api + "/")
 
         posts = Post.objects.filter(
             is_remote=True,
