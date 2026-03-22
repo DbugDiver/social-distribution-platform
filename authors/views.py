@@ -81,8 +81,30 @@ def author_profile(request, pk):
             ).exists()
         )
 
-    # 2. Fetch the correct posts based on who is looking
-    if request.user == author:
+    # 2. Fetch the correct posts based on who is looking.
+    if author.is_remote:
+        # Refresh remote cache, then filter cached remote posts for this author.
+        try:
+            from posts.views import _fetch_remote_public_posts
+            _fetch_remote_public_posts()
+        except Exception:
+            pass
+
+        remote_ids = set()
+        if author.remote_id:
+            rid = author.remote_id.rstrip("/")
+            remote_ids.add(rid)
+            remote_ids.add(rid + "/")
+            remote_ids.add(rid.replace("/authors/api/authors/", "/authors/").rstrip("/"))
+            remote_ids.add(rid.replace("/authors/", "/authors/api/authors/").rstrip("/"))
+
+        posts = Post.objects.filter(
+            is_remote=True,
+            deleted=False,
+            visibility="PUBLIC",
+            remote_author_url__in=list(remote_ids),
+        ).order_by("-published", "-created")
+    elif request.user == author:
         # Looking at my own profile: I see all my own posts
         posts = Post.objects.filter(author=author, deleted=False).order_by("-created")
     elif is_friend:
@@ -100,7 +122,7 @@ def author_profile(request, pk):
 
     # 3. Add like/comment counts for the template
     post_liked_ids = set(
-        Like.objects.filter(author=request.user, post__in=posts).values_list(
+        Like.objects.filter(author=request.user, post__in=posts, post__is_remote=False).values_list(
             "post_id", flat=True
         )
     )
@@ -112,8 +134,12 @@ def author_profile(request, pk):
         else:
             p.rendered = None
 
-        p.like_count = p.likes.count()
-        p.comment_count = p.comments.count()
+        if p.is_remote:
+            p.like_count = 0
+            p.comment_count = 0
+        else:
+            p.like_count = p.likes.count()
+            p.comment_count = p.comments.count()
         p.liked_by_me = p.id in post_liked_ids
 
     # 4. Fetch and Format Github activity
@@ -824,11 +850,23 @@ def author_search(request):
                 continue
             seen_ids.add(author_id)
 
+            profile_image = ""
+            if getattr(user, "profileImage", None):
+                try:
+                    url = user.profileImage.url
+                    if url.startswith("http://") or url.startswith("https://"):
+                        profile_image = url
+                    else:
+                        profile_image = f"{settings.SITE_URL.rstrip('/')}{url}"
+                except Exception:
+                    profile_image = ""
+
             results.append({
                 "id": f"{settings.SITE_URL}/authors/api/authors/{user.id}",  
                 "displayName": user.displayName or user.username,
                 "username": user.username,
                 "host": settings.SITE_URL,
+                "profileImage": profile_image,
                 "is_remote": False,
                 "uuid": str(user.id),
                 "profile_uuid": str(user.id),

@@ -161,6 +161,16 @@
                     {% endif %}
                 </div>
 
+                {% if post.image or post.remote_image %}
+                <div style="margin-bottom: 16px;">
+                    {% if post.is_remote and post.remote_image %}
+                    <img src="{{ post.remote_image }}" alt="Post image" style="max-width:100%; border-radius:12px;" onerror="this.style.display='none';">
+                    {% elif post.image %}
+                    <img src="{{ post.image.url }}" alt="Post image" style="max-width:100%; border-radius:12px;">
+                    {% endif %}
+                </div>
+                {% endif %}
+
                 <footer
                     style="
                         display: flex;
@@ -172,9 +182,9 @@
                     "
                 >
                     <span>
-                        {% if post.liked_by_me %}❤️{% else %}🤍{% endif %} {{ post.likes.count }} Likes
+                        {% if post.liked_by_me %}❤️{% else %}🤍{% endif %} {{ post.like_count|default:0 }} Likes
                     </span>
-                    <span>💬 {{ post.comments.count }} Comments</span>
+                    <span>💬 {{ post.comment_count|default:0 }} Comments</span>
                 </footer>
             </article>
             {% empty %}
