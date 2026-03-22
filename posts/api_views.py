@@ -635,6 +635,15 @@ def _comment_obj_public(comment: Comment, request):
             "profileImage": "",
         }
 
+    likes_path = reverse(
+        "posts:api-public-comment-likes",
+        kwargs={
+            "author_id": comment.post.author_id,
+            "post_id": comment.post_id,
+            "comment_id": comment.id,
+        },
+    )
+
     return {
         "type": "comment",
         "author": author_obj,
@@ -645,6 +654,7 @@ def _comment_obj_public(comment: Comment, request):
         "likes": {
             "type": "likes",
             "count": comment.likes.count(),
+            "id": request.build_absolute_uri(likes_path),
         },
     }
 
