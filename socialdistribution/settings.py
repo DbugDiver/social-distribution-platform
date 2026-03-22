@@ -173,15 +173,14 @@ STORAGES = {
         )
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
     },
 }
 
-# Backward compatibility for packages that still read legacy storage settings.
 DEFAULT_FILE_STORAGE = STORAGES["default"]["BACKEND"]
 STATICFILES_STORAGE = STORAGES["staticfiles"]["BACKEND"]
 
-WHITENOISE_USE_FINDERS = True
+WHITENOISE_USE_FINDERS = False
 
 AUTH_USER_MODEL = "authors.Author"
 
