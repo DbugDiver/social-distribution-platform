@@ -12,6 +12,7 @@ urlpatterns = [
     path("<uuid:post_id>/comment/", views.add_comment, name="add-comment"),
     path("<uuid:post_id>/like/", views.like_post, name="like-post"),
     path("<uuid:post_id>/comments/<uuid:comment_id>/like/", views.like_comment, name="like-comment"),
+    path("<uuid:post_id>/remote-comment-like/", views.like_remote_comment, name="like-remote-comment"),
     path("<uuid:post_id>/", views.detail, name="detail"),
     path("<uuid:post_id>/edit/", views.edit, name="edit"),
     path("<uuid:author_id>/posts/", views.author_posts, name="author-posts"),
@@ -57,5 +58,10 @@ urlpatterns = [
         "api/public/authors/<uuid:author_id>/posts/<uuid:post_id>/likes/",
         api_views.public_post_likes_api,
         name="api-public-post-likes",
+    ),
+    path(
+        "api/public/authors/<uuid:author_id>/posts/<uuid:post_id>/comments/<uuid:comment_id>/likes/",
+        api_views.public_comment_likes_api,
+        name="api-public-comment-likes",
     ),
 ]

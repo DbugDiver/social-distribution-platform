@@ -296,13 +296,22 @@ def _fetch_remote_comments(post):
     for raw in items:
         author = raw.get("author", {}) if isinstance(raw.get("author"), dict) else {}
         likes_obj = raw.get("likes") if isinstance(raw.get("likes"), dict) else {}
+        comment_id = str(raw.get("id") or "").strip()
+        comment_likes_url = str(likes_obj.get("id") or "").strip()
+        if not comment_likes_url and comment_id:
+            base_comments_url = comments_url.rstrip("/")
+            if comment_id.startswith("http://") or comment_id.startswith("https://"):
+                comment_likes_url = f"{comment_id.rstrip('/')}/likes/"
+            else:
+                comment_likes_url = f"{base_comments_url}/{comment_id}/likes/"
         normalized.append({
-            "id": raw.get("id"),
+            "id": comment_id,
             "comment": raw.get("comment", ""),
             "content_type": raw.get("contentType", Comment.ContentType.PLAIN),
             "published": raw.get("published", ""),
             "author_name": author.get("displayName") or author.get("username") or "Remote Author",
             "like_count": likes_obj.get("count", 0),
+            "likes_url": comment_likes_url,
         })
     return normalized
 
@@ -410,6 +419,54 @@ def _send_remote_like(user, post):
         )
         return resp.status_code in [200, 201, 202]
     except Exception as e:
+        return False
+
+
+def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""):
+    likes_url = (remote_likes_url or "").strip()
+    comment_object = (remote_comment_id or "").strip()
+
+    if not likes_url and comment_object:
+        if comment_object.startswith("http://") or comment_object.startswith("https://"):
+            likes_url = f"{comment_object.rstrip('/')}/likes/"
+        else:
+            remote_id = str(post.remote_id or "").rstrip("/")
+            if "/api/authors/" in remote_id and "/posts/" in remote_id:
+                comments_base = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments"
+            else:
+                comments_base = remote_id + "/comments"
+            likes_url = f"{comments_base.rstrip('/')}/{comment_object}/likes/"
+
+    if not likes_url:
+        return False
+
+    if not comment_object:
+        # Derive object from likes endpoint for remote servers that validate Like.object.
+        comment_object = likes_url.rstrip("/").replace("/likes", "")
+
+    stable_like_id = f"{_site_url()}/federation/likes/{user.id}/{post.id}/{abs(hash(comment_object))}"
+    payload = {
+        "type": "like",
+        "id": stable_like_id,
+        "author": _local_author_payload(user),
+        "object": comment_object,
+        "published": timezone.now().isoformat(),
+    }
+
+    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
+    try:
+        resp = requests.post(
+            likes_url,
+            json=payload,
+            auth=auth,
+            timeout=5,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+        )
+        return resp.status_code in [200, 201, 202]
+    except Exception:
         return False
 
 # ---------- Stream ----------
@@ -645,18 +702,40 @@ def like_post(request, post_id):
 @login_required
 def like_comment(request, post_id, comment_id):
     post = get_object_or_404(Post, id=post_id, deleted=False)
-    comment = get_object_or_404(Comment, id=comment_id, post=post)
 
     if request.method != "POST":
         raise Http404()
 
     if post.is_remote:
-        return HttpResponseForbidden("Remote comment likes are not implemented yet.")
+        return HttpResponseForbidden("Use remote comment like endpoint.")
+
+    comment = get_object_or_404(Comment, id=comment_id, post=post)
 
     if not _can_interact_with_post(request.user, post):
         return HttpResponseForbidden("Not allowed.")
 
     Like.objects.get_or_create(author=request.user, comment=comment)
+
+    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("posts:detail", post_id=post.id).url
+    return redirect(next_url)
+
+
+@login_required
+def like_remote_comment(request, post_id):
+    post = get_object_or_404(Post, id=post_id, deleted=False)
+
+    if request.method != "POST":
+        raise Http404()
+
+    if not post.is_remote:
+        return HttpResponseForbidden("Not a remote post.")
+
+    remote_comment_id = (request.POST.get("remote_comment_id") or "").strip()
+    remote_likes_url = (request.POST.get("remote_likes_url") or "").strip()
+
+    ok = _send_remote_comment_like(request.user, post, remote_comment_id, remote_likes_url)
+    if not ok:
+        return HttpResponseForbidden("Could not send remote comment like.")
 
     next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("posts:detail", post_id=post.id).url
     return redirect(next_url)

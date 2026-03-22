@@ -586,6 +586,7 @@ def stream_api(request):
             "title": post.title,
             "contentType": post.content_type,
             "content": post.content,
+            "image": (post.remote_image if post.is_remote else (req.build_absolute_uri(post.image.url) if post.image else "")),
             "author": _remote_author_obj_from_post(post) if post.is_remote else _author_obj(post.author, req),
             "visibility": post.visibility,
             "published": (post.published or post.created).isoformat(),
@@ -728,6 +729,7 @@ def public_posts_api(request):
             "title": post.title,
             "contentType": post.content_type,
             "content": post.content,
+            "image": request.build_absolute_uri(post.image.url) if post.image else "",
             "author": author_obj,
             "visibility": post.visibility,
             "published": (post.published or post.created).isoformat(),
@@ -887,6 +889,65 @@ def public_post_likes_api(request, author_id, post_id):
             return JsonResponse({"detail": "Login required."}, status=403)
 
         like, created = Like.objects.get_or_create(author=request.user, post=post)
+        return JsonResponse(_like_obj_public(like, request), status=201 if created else 200)
+
+    return HttpResponseNotAllowed(["GET", "POST"])
+
+
+@csrf_exempt
+def public_comment_likes_api(request, author_id, post_id, comment_id):
+    post = _public_post_or_404(author_id, post_id)
+    comment = get_object_or_404(Comment, id=comment_id, post=post)
+
+    if request.method == "GET":
+        likes = comment.likes.select_related("author", "comment", "comment__post").order_by("-created")
+        return JsonResponse(
+            {
+                "type": "likes",
+                "count": likes.count(),
+                "src": [_like_obj_public(like, request) for like in likes],
+            },
+            status=200,
+        )
+
+    if request.method == "POST":
+        if request.content_type == "application/json":
+            try:
+                payload = json.loads(request.body.decode("utf-8"))
+            except Exception:
+                return JsonResponse({"detail": "Invalid JSON."}, status=400)
+
+            author_payload = _remote_author_obj_from_payload(payload.get("author"))
+            remote_id = payload.get("id") or payload.get("remote_id") or None
+
+            if remote_id:
+                like, created = Like.objects.get_or_create(
+                    remote_id=remote_id,
+                    defaults={
+                        "is_remote": True,
+                        "author": None,
+                        "comment": comment,
+                        "remote_author_url": author_payload["id"],
+                        "remote_author_name": author_payload["displayName"],
+                        "remote_author_host": author_payload["host"],
+                    },
+                )
+                return JsonResponse(_like_obj_public(like, request), status=201 if created else 200)
+
+            like = Like.objects.create(
+                is_remote=True,
+                author=None,
+                comment=comment,
+                remote_author_url=author_payload["id"],
+                remote_author_name=author_payload["displayName"],
+                remote_author_host=author_payload["host"],
+            )
+            return JsonResponse(_like_obj_public(like, request), status=201)
+
+        if not request.user.is_authenticated:
+            return JsonResponse({"detail": "Login required."}, status=403)
+
+        like, created = Like.objects.get_or_create(author=request.user, comment=comment)
         return JsonResponse(_like_obj_public(like, request), status=201 if created else 200)
 
     return HttpResponseNotAllowed(["GET", "POST"])
