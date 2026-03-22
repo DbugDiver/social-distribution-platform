@@ -51,9 +51,21 @@
                             {% endif %}
 
                             {% if profile_user.profileImage %}
-                                <img class="avatar-img" src="{{ profile_user.profileImage.url }}" alt="{{ profile_user.displayName }}'s Profile Picture">
+                                <img
+                                    class="avatar-img"
+                                    src="{{ profile_user.profileImage.url }}"
+                                    alt="{{ profile_user.displayName }}'s Profile Picture"
+                                    onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+                                >
+                                <figure class="avatar-img" style="display:none;"></figure>
                             {% elif remote_profile_image_url %}
-                                <img class="avatar-img" src="{{ remote_profile_image_url }}" alt="{{ profile_user.displayName }}'s Profile Picture">
+                                <img
+                                    class="avatar-img"
+                                    src="{{ remote_profile_image_url }}"
+                                    alt="{{ profile_user.displayName }}'s Profile Picture"
+                                    onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+                                >
+                                <figure class="avatar-img" style="display:none;"></figure>
                             {% else %}
                                 <figure class="avatar-img"></figure>
                             {% endif %}

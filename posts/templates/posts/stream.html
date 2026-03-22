@@ -58,13 +58,21 @@
                   src="{{ post.author.profileImage.url }}"
                   class="avatar"
                   alt="{{ post.display_author.display_name }} profile picture"
+                  onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';"
                 >
+                <span class="avatar" style="font-size: 2rem; display:none; text-align:center; line-height:1; background:#e2e8f0; border-radius:50%;">
+                  🧛
+                </span>
               {% elif post.is_remote and post.remote_author_image %}
                 <img
                   src="{{ post.remote_author_image }}"
                   class="avatar"
                   alt="{{ post.display_author.display_name }} profile picture"
+                  onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';"
                 >
+                <span class="avatar" style="font-size: 2rem; display:none; text-align:center; line-height:1; background:#e2e8f0; border-radius:50%;">
+                  🧛
+                </span>
               {% else %}
                 <span class="avatar" style="font-size: 2rem; display:inline-block; text-align:center; line-height:1; background:#e2e8f0; border-radius:50%;">
                   🧛
