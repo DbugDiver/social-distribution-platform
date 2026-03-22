@@ -47,6 +47,7 @@ class Post(models.Model):
     remote_author_url = models.URLField(blank=True, null=True)
     remote_author_name = models.CharField(max_length=200, blank=True, null=True)
     remote_author_host = models.URLField(blank=True, null=True)
+    remote_image = models.URLField(blank=True, null=True, max_length=500)
     published = models.DateTimeField(blank=True, null=True)
 
     class Meta:

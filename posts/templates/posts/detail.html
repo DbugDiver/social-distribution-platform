@@ -40,9 +40,13 @@
         <p>{{ post.content }}</p>
       {% endif %}
 
-      {% if post.image %}
+      {% if post.image or post.remote_image %}
         <div style="margin-top:15px;">
-          <img src="{{ post.image.url }}" style="max-width:100%; border-radius:8px;">
+          {% if post.is_remote and post.remote_image %}
+            <img src="{{ post.remote_image }}" style="max-width:100%; border-radius:8px;" onerror="this.style.display='none';">
+          {% elif post.image %}
+            <img src="{{ post.image.url }}" style="max-width:100%; border-radius:8px;">
+          {% endif %}
         </div>
       {% endif %}
 

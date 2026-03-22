@@ -143,6 +143,10 @@ def _normalize_remote_post(raw, node_url):
     remote_post_id = raw.get("id") or raw.get("remote_id") or raw.get("url")
     comments_obj = raw.get("comments") if isinstance(raw.get("comments"), dict) else {}
     likes_obj = raw.get("likes") if isinstance(raw.get("likes"), dict) else {}
+    
+    image_url = (raw.get("image") or "").strip()
+    if image_url.startswith("/") and node_url:
+        image_url = f"{node_url.rstrip('/')}{image_url}"
 
     return {
         "remote_id": str(remote_post_id) if remote_post_id else "",
@@ -156,6 +160,7 @@ def _normalize_remote_post(raw, node_url):
         "remote_author_name": author.get("displayName") or author.get("username") or "Remote Author",
         "remote_author_host": author.get("host") or node_url.rstrip("/"),
         "remote_author_image": author.get("profileImage") or "",
+        "remote_image": image_url,
         "remote_comments_url": comments_obj.get("id") or "",
         "remote_likes_url": likes_obj.get("id") or "",
         "remote_comment_count": comments_obj.get("count", 0),
@@ -176,6 +181,7 @@ def _upsert_remote_post_cache(data):
             "remote_author_url": data["remote_author_url"],
             "remote_author_name": data["remote_author_name"],
             "remote_author_host": data["remote_author_host"],
+            "remote_image": data.get("remote_image", ""),
             "title": data["title"],
             "content": data["content"],
             "content_type": data["content_type"][:50],

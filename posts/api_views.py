@@ -258,6 +258,13 @@ def post_detail_api(request, author_id, post_id):
         kwargs={"author_id": post.author_id, "post_id": post.id},
     )
 
+    image_url = ""
+    if post.image:
+        try:
+            image_url = request.build_absolute_uri(post.image.url)
+        except (AttributeError, ValueError):
+            pass
+
     payload = {
         "type": "entry",
         "id": request.build_absolute_uri(post_path),
@@ -269,6 +276,7 @@ def post_detail_api(request, author_id, post_id):
         "published": (post.published or post.created).isoformat(),
         "updated": post.updated.isoformat(),
         "unlisted": post.visibility == Post.Visibility.UNLISTED,
+        "image": image_url,
         "comments": {
             "type": "comments",
             "id": request.build_absolute_uri(comments_path),
