@@ -1,11 +1,89 @@
+from django.conf import settings
 from django.contrib.auth.decorators import user_passes_test
 from django.shortcuts import render, redirect, get_object_or_404
+import requests
+
 from authors.models import Author
 from posts.models import Post
 
 
 def superuser_required(user):
     return user.is_superuser
+
+
+def _auth_for_node(node_url):
+    creds = getattr(settings, "REMOTE_NODE_CREDENTIALS", {}) or {}
+    info = creds.get((node_url or "").rstrip("/"))
+    if info and info.get("username") and info.get("password"):
+        return (info["username"], info["password"])
+    return None
+
+
+def _federated_authors():
+    local_site = getattr(settings, "SITE_URL", "").rstrip("/")
+    items = []
+    seen = set()
+
+    # Local authors first.
+    for author in Author.objects.all().order_by("username"):
+        items.append({
+            "id": str(author.id),
+            "username": author.username,
+            "display_name": author.displayName or author.username,
+            "is_approved": bool(author.is_approved),
+            "is_remote": False,
+            "host": local_site,
+            "profile_url": f"/authors/{author.id}/",
+        })
+        seen.add((local_site, author.username.lower()))
+
+    # Remote authors from configured peer nodes.
+    for node in getattr(settings, "REMOTE_NODES", []):
+        node = (node or "").rstrip("/")
+        if not node or node == local_site:
+            continue
+
+        try:
+            response = requests.get(
+                f"{node}/authors/api/authors/?page=1&size=200&_federated=1",
+                auth=_auth_for_node(node),
+                timeout=5,
+                headers={"Accept": "application/json"},
+            )
+            if response.status_code != 200:
+                continue
+            payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+            for entry in payload.get("items", []):
+                username = (entry.get("username") or "").strip()
+                if not username:
+                    continue
+
+                key = (node, username.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                remote_id = str(entry.get("id") or "").rstrip("/")
+                profile_url = remote_id
+                if remote_id.endswith("/authors/api/authors"):
+                    profile_url = remote_id.replace("/authors/api/authors", "/authors")
+                elif "/authors/api/authors/" in remote_id:
+                    profile_url = remote_id.replace("/authors/api/authors/", "/authors/")
+
+                items.append({
+                    "id": remote_id,
+                    "username": username,
+                    "display_name": entry.get("displayName") or username,
+                    # Default to approved for remote display if field absent.
+                    "is_approved": bool(entry.get("is_approved", True)),
+                    "is_remote": True,
+                    "host": entry.get("host") or node,
+                    "profile_url": profile_url,
+                })
+        except Exception:
+            continue
+
+    return items
 
 @user_passes_test(superuser_required)
 def node_home(request):
@@ -43,14 +121,21 @@ def node_admin_dashboard(request):
 
 @user_passes_test(superuser_required)
 def approvals(request):
-    pending_users = Author.objects.filter(is_approved=False)
-    return render(request, "node/approvals.html", {
-        "pending_users": pending_users
-    })
+    all_authors = _federated_authors()
+    pending_users = [a for a in all_authors if not a.get("is_approved", True)]
+
+    return render(
+        request,
+        "node/approvals.html",
+        {
+            "pending_users": pending_users,
+        },
+    )
+
+
 @user_passes_test(superuser_required)
 def manage_authors(request):
-    authors = Author.objects.all()
-
+    authors = _federated_authors()
     return render(request, "node/manage_authors.html", {"authors": authors})
 @user_passes_test(superuser_required)
 def delete_author(request, author_id):

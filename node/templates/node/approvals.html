@@ -26,17 +26,27 @@
       <ul style="list-style: none; padding: 0; margin: 0;">
         {% for user in pending_users %}
           <li style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 0.5rem;">
-            <span style="color: #555;">{{ user.username }}</span>
-            <form method="post" action="{% url 'handle_approval' %}" style="display: inline;">
-              {% csrf_token %}
-              <input type="hidden" name="author_id" value="{{ user.id }}">
-              <button type="submit" name="action" value="accept" class="pill" style="margin-right: 0.5rem; background-color: #4caf50; color: white; border: none; border-radius: 20px; padding: 0.4rem 0.8rem; cursor: pointer;">
-                Accept
-              </button>
-              <button type="submit" name="action" value="reject" class="pill" style="background-color: #f44336; color: white; border: none; border-radius: 20px; padding: 0.4rem 0.8rem; cursor: pointer;">
-                Reject
-              </button>
-            </form>
+            <span style="color: #555;">
+              {{ user.display_name|default:user.username }} ({{ user.username }})
+              {% if user.is_remote %}
+                <small style="color:#64748b;"> remote</small>
+              {% endif %}
+            </span>
+
+            {% if user.is_remote %}
+              <span style="font-size: 0.85rem; color:#64748b;">Approve on remote node</span>
+            {% else %}
+              <form method="post" action="{% url 'handle_approval' %}" style="display: inline;">
+                {% csrf_token %}
+                <input type="hidden" name="author_id" value="{{ user.id }}">
+                <button type="submit" name="action" value="accept" class="pill" style="margin-right: 0.5rem; background-color: #4caf50; color: white; border: none; border-radius: 20px; padding: 0.4rem 0.8rem; cursor: pointer;">
+                  Accept
+                </button>
+                <button type="submit" name="action" value="reject" class="pill" style="background-color: #f44336; color: white; border: none; border-radius: 20px; padding: 0.4rem 0.8rem; cursor: pointer;">
+                  Reject
+                </button>
+              </form>
+            {% endif %}
           </li>
         {% endfor %}
       </ul>

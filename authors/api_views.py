@@ -73,13 +73,14 @@ def api_get_all_authors(request):
         items.append({
             "type": "author",
             "id": author_url,
-            "url": author_url, 
-            "host": base_url,   
+            "url": author_url,
+            "host": base_url,
             "username": author.username,
             "displayName": author.displayName or author.username,
             "bio": author.bio or "",
             "github": author.github or "",
             "profileImage": profile_image,
+            "is_approved": bool(author.is_approved),
         })
 
     # Federation lookup: include remote matches directly from peer nodes.

@@ -24,21 +24,31 @@
 
       {% for author in authors %}
         <li style="margin-bottom: 1rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
-          
-          <a class="author-link" href="{% url 'posts:author-posts' author.id %}" style="color: #00796b; text-decoration: none; font-weight: bold;">
-            {{ author.displayName|default:author.username }} | {{ author.username }}
-          </a>
+
+          {% if author.is_remote and author.profile_url %}
+            <a class="author-link" href="{{ author.profile_url }}" style="color: #00796b; text-decoration: none; font-weight: bold;" target="_blank" rel="noreferrer">
+              {{ author.display_name|default:author.username }} | {{ author.username }} (remote)
+            </a>
+          {% else %}
+            <a class="author-link" href="{% url 'posts:author-posts' author.id %}" style="color: #00796b; text-decoration: none; font-weight: bold;">
+              {{ author.display_name|default:author.username }} | {{ author.username }}
+            </a>
+          {% endif %}
 
           <span class="author-actions" style="display: flex; gap: 0.5rem;">
-            <a class="icon-btn admin-icon" href="{% url 'edit-profile' author.id %}" 
-               style="text-decoration: none; font-size: 1.2rem; cursor: pointer;">
-              ✏️
-            </a>
+            {% if author.is_remote %}
+              <span style="font-size: 0.85rem; color:#64748b;">Remote (read-only)</span>
+            {% else %}
+              <a class="icon-btn admin-icon" href="{% url 'edit-profile' author.id %}"
+                 style="text-decoration: none; font-size: 1.2rem; cursor: pointer;">
+                ✏️
+              </a>
 
-            <a class="icon-btn delete-btn admin-icon" href="{% url 'delete-author' author.id %}" 
-               style="text-decoration: none; font-size: 1.2rem; cursor: pointer;">
-              🗑
-            </a>
+              <a class="icon-btn delete-btn admin-icon" href="{% url 'delete-author' author.id %}"
+                 style="text-decoration: none; font-size: 1.2rem; cursor: pointer;">
+                🗑
+              </a>
+            {% endif %}
           </span>
 
         </li>
