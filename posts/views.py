@@ -289,12 +289,14 @@ def _fetch_remote_comments(post):
     normalized = []
     for raw in items:
         author = raw.get("author", {}) if isinstance(raw.get("author"), dict) else {}
+        likes_obj = raw.get("likes") if isinstance(raw.get("likes"), dict) else {}
         normalized.append({
             "id": raw.get("id"),
             "comment": raw.get("comment", ""),
             "content_type": raw.get("contentType", Comment.ContentType.PLAIN),
             "published": raw.get("published", ""),
             "author_name": author.get("displayName") or author.get("username") or "Remote Author",
+            "like_count": likes_obj.get("count", 0),
         })
     return normalized
 

@@ -633,6 +633,10 @@ def _comment_obj_public(comment: Comment, request):
         "contentType": comment.content_type,
         "published": comment.published.isoformat(),
         "id": str(comment.remote_id or comment.id),
+        "likes": {
+            "type": "likes",
+            "count": comment.likes.count(),
+        },
     }
 
 

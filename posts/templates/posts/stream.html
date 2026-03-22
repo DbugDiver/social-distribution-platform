@@ -158,6 +158,9 @@
                     <div class="comment-text">
                       <strong>{{ comment.author_name }}:</strong> {{ comment.comment }}
                     </div>
+                    <span class="comment-like-btn" aria-label="Remote comment likes">
+                      🤍 {{ comment.like_count|default:0 }}
+                    </span>
                   </div>
                 {% endfor %}
                 {% if post.comment_count > 3 %}

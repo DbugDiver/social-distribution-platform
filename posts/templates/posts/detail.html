@@ -86,6 +86,9 @@
               {% if comment.published %} · {{ comment.published }}{% endif %}<br>
               {{ comment.comment }}
             </div>
+            <span class="comment-like-btn" aria-label="Remote comment likes">
+              🤍 {{ comment.like_count|default:0 }}
+            </span>
           </div>
         {% empty %}
           <p>No comments yet.</p>
