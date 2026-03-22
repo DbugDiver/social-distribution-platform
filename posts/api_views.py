@@ -15,6 +15,13 @@ from authors.models import Author, Follower
 from .models import Comment, Like, Post
 
 
+def _normalized_author_url(value):
+    raw = (value or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    return raw.replace("/authors/api/authors/", "/authors/")
+
+
 def _author_obj(author: Author, request):
     # Federation safety: remote artifacts can exist without a local Author relation.
     # Return a minimal placeholder instead of raising when author is None.
@@ -603,8 +610,9 @@ def _remote_author_obj_from_payload(author_payload):
             "displayName": "Remote Author",
             "host": "",
         }
+    identifier = (author_payload.get("id") or author_payload.get("url") or "").strip()
     return {
-        "id": author_payload.get("id", ""),
+        "id": identifier,
         "displayName": author_payload.get("displayName") or author_payload.get("username") or "Remote Author",
         "host": author_payload.get("host", ""),
     }
@@ -870,6 +878,7 @@ def public_post_likes_api(request, author_id, post_id):
 
             author_payload = _remote_author_obj_from_payload(payload.get("author"))
             remote_id = payload.get("id") or payload.get("remote_id") or None
+            normalized_author = _normalized_author_url(author_payload["id"])
 
             if remote_id:
                 like, created = Like.objects.get_or_create(
@@ -878,7 +887,7 @@ def public_post_likes_api(request, author_id, post_id):
                         "is_remote": True,
                         "author": None,
                         "post": post,
-                        "remote_author_url": author_payload["id"],
+                        "remote_author_url": normalized_author or author_payload["id"],
                         "remote_author_name": author_payload["displayName"],
                         "remote_author_host": author_payload["host"],
                     },
@@ -889,7 +898,7 @@ def public_post_likes_api(request, author_id, post_id):
                 is_remote=True,
                 author=None,
                 post=post,
-                remote_author_url=author_payload["id"],
+                remote_author_url=normalized_author or author_payload["id"],
                 remote_author_name=author_payload["displayName"],
                 remote_author_host=author_payload["host"],
             )
@@ -910,14 +919,22 @@ def public_post_likes_api(request, author_id, post_id):
 
             author_payload = _remote_author_obj_from_payload(payload.get("author"))
             remote_id = payload.get("id") or payload.get("remote_id") or None
+            normalized_author = _normalized_author_url(author_payload["id"])
 
             qs = Like.objects.filter(post=post, is_remote=True)
             if remote_id:
                 qs = qs.filter(remote_id=remote_id)
-            else:
-                qs = qs.filter(remote_author_url=author_payload["id"])
 
             deleted, _ = qs.delete()
+            if deleted == 0 and normalized_author:
+                # Fallback for legacy rows saved with a different URL shape.
+                fallback_qs = Like.objects.filter(post=post, is_remote=True)
+                fallback_ids = [
+                    like.id for like in fallback_qs
+                    if _normalized_author_url(like.remote_author_url) == normalized_author
+                ]
+                if fallback_ids:
+                    deleted, _ = Like.objects.filter(id__in=fallback_ids).delete()
             return JsonResponse({"deleted": deleted}, status=200)
 
         if not request.user.is_authenticated:
@@ -954,6 +971,7 @@ def public_comment_likes_api(request, author_id, post_id, comment_id):
 
             author_payload = _remote_author_obj_from_payload(payload.get("author"))
             remote_id = payload.get("id") or payload.get("remote_id") or None
+            normalized_author = _normalized_author_url(author_payload["id"])
 
             if remote_id:
                 like, created = Like.objects.get_or_create(
@@ -962,7 +980,7 @@ def public_comment_likes_api(request, author_id, post_id, comment_id):
                         "is_remote": True,
                         "author": None,
                         "comment": comment,
-                        "remote_author_url": author_payload["id"],
+                        "remote_author_url": normalized_author or author_payload["id"],
                         "remote_author_name": author_payload["displayName"],
                         "remote_author_host": author_payload["host"],
                     },
@@ -973,7 +991,7 @@ def public_comment_likes_api(request, author_id, post_id, comment_id):
                 is_remote=True,
                 author=None,
                 comment=comment,
-                remote_author_url=author_payload["id"],
+                remote_author_url=normalized_author or author_payload["id"],
                 remote_author_name=author_payload["displayName"],
                 remote_author_host=author_payload["host"],
             )
@@ -994,14 +1012,22 @@ def public_comment_likes_api(request, author_id, post_id, comment_id):
 
             author_payload = _remote_author_obj_from_payload(payload.get("author"))
             remote_id = payload.get("id") or payload.get("remote_id") or None
+            normalized_author = _normalized_author_url(author_payload["id"])
 
             qs = Like.objects.filter(comment=comment, is_remote=True)
             if remote_id:
                 qs = qs.filter(remote_id=remote_id)
-            else:
-                qs = qs.filter(remote_author_url=author_payload["id"])
 
             deleted, _ = qs.delete()
+            if deleted == 0 and normalized_author:
+                # Fallback for legacy rows saved with a different URL shape.
+                fallback_qs = Like.objects.filter(comment=comment, is_remote=True)
+                fallback_ids = [
+                    like.id for like in fallback_qs
+                    if _normalized_author_url(like.remote_author_url) == normalized_author
+                ]
+                if fallback_ids:
+                    deleted, _ = Like.objects.filter(id__in=fallback_ids).delete()
             return JsonResponse({"deleted": deleted}, status=200)
 
         if not request.user.is_authenticated:
