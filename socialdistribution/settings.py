@@ -5,13 +5,14 @@ Django settings for socialdistribution project.
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 import dj_database_url
 
 try:
     import cloudinary_storage  # noqa: F401
-    USE_CLOUDINARY = True
+    CLOUDINARY_INSTALLED = True
 except ImportError:
-    USE_CLOUDINARY = False
+    CLOUDINARY_INSTALLED = False
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -71,7 +72,7 @@ INSTALLED_APPS = [
     "rest_framework",
 ]
 
-if USE_CLOUDINARY:
+if CLOUDINARY_INSTALLED:
     INSTALLED_APPS = ["cloudinary_storage", "cloudinary"] + INSTALLED_APPS
 
 MIDDLEWARE = [
@@ -142,17 +143,40 @@ STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
 
+cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME")
+api_key = os.environ.get("CLOUDINARY_API_KEY")
+api_secret = os.environ.get("CLOUDINARY_API_SECRET")
+
+cloudinary_url = os.environ.get("CLOUDINARY_URL", "")
+if cloudinary_url and not (cloud_name and api_key and api_secret):
+    parsed = urlparse(cloudinary_url)
+    if parsed.scheme == "cloudinary" and parsed.hostname:
+        cloud_name = cloud_name or parsed.hostname
+        api_key = api_key or parsed.username
+        api_secret = api_secret or parsed.password
+
+USE_CLOUDINARY = CLOUDINARY_INSTALLED and bool(cloud_name and api_key and api_secret)
+
 if USE_CLOUDINARY:
     CLOUDINARY_STORAGE = {
-        "CLOUD_NAME": os.environ.get("CLOUDINARY_CLOUD_NAME"),
-        "API_KEY": os.environ.get("CLOUDINARY_API_KEY"),
-        "API_SECRET": os.environ.get("CLOUDINARY_API_SECRET"),
+        "CLOUD_NAME": cloud_name,
+        "API_KEY": api_key,
+        "API_SECRET": api_secret,
     }
-    DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
-else:
-    DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STORAGES = {
+    "default": {
+        "BACKEND": (
+            "cloudinary_storage.storage.MediaCloudinaryStorage"
+            if USE_CLOUDINARY
+            else "django.core.files.storage.FileSystemStorage"
+        )
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    },
+}
+
 WHITENOISE_USE_FINDERS = True
 
 AUTH_USER_MODEL = "authors.Author"
