@@ -29,6 +29,13 @@ def _author_obj(author: Author, request):
 
     author_path = reverse("author-profile", kwargs={"pk": author.id})
     fqid = request.build_absolute_uri(author_path)
+    profile_image = ""
+    if getattr(author, "profileImage", None):
+        try:
+            profile_image = request.build_absolute_uri(author.profileImage.url)
+        except Exception:
+            profile_image = ""
+
     return {
         "type": "author",
         "id": fqid,
@@ -36,7 +43,7 @@ def _author_obj(author: Author, request):
         "displayName": getattr(author, "displayName", "") or getattr(author, "username", "Unknown"),
         "url": fqid,
         "github": getattr(author, "github", "") or "",
-        "profileImage": getattr(author, "profileImage", "") or "",
+        "profileImage": profile_image,
     }
 
 
