@@ -18,11 +18,17 @@
                 {% endif %}
                 <div>
                     <div class="author">
-                        {{ author.displayName }}
+                        {% if author.profile_uuid %}
+                            <a href="{% url 'author-profile' author.profile_uuid %}">{{ author.displayName }}</a>
+                        {% elif author.url %}
+                            <a href="{{ author.url }}" target="_blank" rel="noopener noreferrer">{{ author.displayName }}</a>
+                        {% else %}
+                            {{ author.displayName }}
+                        {% endif %}
                     </div>
 
                     <div class="timestamp">
-                        @{{ author.displayName }}
+                        @{{ author.username|default:author.displayName }}
                     </div>
 
                     <!-- ✅ ONE FOLLOW BUTTON -->

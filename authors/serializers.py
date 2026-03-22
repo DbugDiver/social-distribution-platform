@@ -9,7 +9,7 @@ class AuthorSerializer(serializers.ModelSerializer):
         fields=["id","host","username","displayName","github","bio","profileImage",]
     def get_id(self, obj):
         host = (obj.host or "").rstrip("/")
-        return f"{host}/authors/api/authors/{obj.id}"
+        return f"{host}/authors/{obj.id}"
 class FollowerSerializer(serializers.ModelSerializer):
     class Meta:
         model=Follower

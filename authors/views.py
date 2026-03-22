@@ -824,9 +824,11 @@ def author_search(request):
             results.append({
                 "id": f"{settings.SITE_URL}/authors/api/authors/{user.id}",  
                 "displayName": user.displayName or user.username,
+                "username": user.username,
                 "host": settings.SITE_URL,
                 "is_remote": False,
-                "uuid": str(user.id)  
+                "uuid": str(user.id),
+                "profile_uuid": str(user.id),
             })
 
         # REMOTE
@@ -843,6 +845,11 @@ def author_search(request):
                 author_id = (author.get("id") or "").strip()
                 if not author_id or author_id in seen_ids:
                     continue
+
+                # Ensure search cards can link to a local profile route for remote authors.
+                remote_proxy = _upsert_remote_author(author)
+                if remote_proxy:
+                    author["profile_uuid"] = str(remote_proxy.id)
 
                 author["is_remote"] = True
                 seen_ids.add(author_id)
