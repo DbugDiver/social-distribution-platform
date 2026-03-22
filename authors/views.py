@@ -504,9 +504,13 @@ def reject_follow_request(request, pk):
 def follow_requests(request):
     """View all pending follow requests for the logged-in author"""
     author = request.user
-    pending_follow_requests = Follower.objects.filter(
+    pending_follow_requests = list(Follower.objects.filter(
         following=author, status="pending"
-    )
+    ).select_related("follower", "following"))
+
+    # Keep remote follower names fresh in the UI.
+    _refresh_remote_authors([f.follower for f in pending_follow_requests if getattr(f, "follower", None)])
+
     context = {
         "pending_follow_requests": pending_follow_requests,
     }
@@ -573,11 +577,14 @@ def mutual_following_became_friends(request):
     ).values_list(
         "follower", flat=True
     )  # get all the authors that are following the author that is currently logged in and that have accepted the follow request ie they are both following each other
-    friends = Author.objects.filter(
+    friends = list(Author.objects.filter(
         id__in=following
     ).filter(
         id__in=followers
-    )  # get all the authors that are both following the logged-in author and that are being followed by the logged-in author, these are the friends of the logged-in author
+    ))  # get all the authors that are both following the logged-in author and that are being followed by the logged-in author, these are the friends of the logged-in author
+
+    _refresh_remote_authors(friends)
+
     context = {
         "friends": friends
     }  # create a context dictionary to pass the friends to the template
@@ -596,10 +603,13 @@ def friends_list(request):
     followers_ids = Follower.objects.filter(
         following=author, status="accepted"
     ).values_list("follower", flat=True)
-    friends = Author.objects.filter(id__in=following_ids).filter(id__in=followers_ids)
+    friends = list(Author.objects.filter(id__in=following_ids).filter(id__in=followers_ids))
 
     # Everyone the user is following (accepted only)
-    following = Author.objects.filter(id__in=following_ids)
+    following = list(Author.objects.filter(id__in=following_ids))
+
+    _refresh_remote_authors(friends)
+    _refresh_remote_authors(following)
 
     context = {
         "friends": friends,
@@ -716,6 +726,35 @@ def _upsert_remote_author(author_payload):
     remote_author.set_unusable_password()
     remote_author.save(update_fields=["password"])
     return remote_author
+
+
+def _refresh_remote_author(author):
+    if not author or not author.is_remote or not author.remote_id:
+        return
+
+    node_url = _host_from_author_url(author.remote_id)
+    remote_doc = _try_get_json(author.remote_id, auth=_auth_for_node(node_url))
+    if not isinstance(remote_doc, dict):
+        return
+
+    display_name = (remote_doc.get("displayName") or remote_doc.get("username") or "").strip()
+    host = (remote_doc.get("host") or node_url or author.host or "").rstrip("/")
+
+    changed = False
+    if display_name and author.displayName != display_name:
+        author.displayName = display_name
+        changed = True
+    if host and author.host != host:
+        author.host = host
+        changed = True
+
+    if changed:
+        author.save(update_fields=["displayName", "host"])
+
+
+def _refresh_remote_authors(authors):
+    for a in authors:
+        _refresh_remote_author(a)
 
 
 def _local_author_payload(author):
