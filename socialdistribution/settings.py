@@ -177,6 +177,10 @@ STORAGES = {
     },
 }
 
+# Backward compatibility for packages that still read legacy storage settings.
+DEFAULT_FILE_STORAGE = STORAGES["default"]["BACKEND"]
+STATICFILES_STORAGE = STORAGES["staticfiles"]["BACKEND"]
+
 WHITENOISE_USE_FINDERS = True
 
 AUTH_USER_MODEL = "authors.Author"
