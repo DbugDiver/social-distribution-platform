@@ -8,6 +8,20 @@
             </header>
 
             <article class="post-card" style="max-width: 520px; margin: 0 auto">
+                {% if error %}
+                <div style="background-color: #fee; color: #c33; padding: 12px; border-radius: 4px; margin-bottom: 16px; border-left: 4px solid #c33;">
+                    {{ error }}
+                </div>
+                {% endif %}
+
+                {% if form.non_field_errors %}
+                <div style="background-color: #fee; color: #c33; padding: 12px; border-radius: 4px; margin-bottom: 16px; border-left: 4px solid #c33;">
+                    {% for error in form.non_field_errors %}
+                        <p style="margin: 0;">{{ error }}</p>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
                 <form method="POST" enctype="multipart/form-data">
                     {% csrf_token %} {% for field in form %}
                     <p class="form-row">

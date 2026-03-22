@@ -301,6 +301,9 @@ def edit_profile(request, author_id=None):
             form.save()
             author.save()  # Because github is in your form, form.save() saves it automatically! No need for author.github = github_link
             return redirect("author-profile", pk=author.pk)
+        else:
+            # Form has validation errors, re-render with error messages
+            return render(request, "authors/edit_profile.html", {"form": form})
 
     else:
         # If it's a GET request, load the form pre-filled with their current info
