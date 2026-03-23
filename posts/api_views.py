@@ -47,7 +47,11 @@ def _author_obj(author: Author, request):
     profile_image = ""
     if getattr(author, "profileImage", None):
         try:
-            profile_image = request.build_absolute_uri(author.profileImage.url)
+            field_value = getattr(author, "profileImage")
+            if hasattr(field_value, "url"):
+                profile_image = request.build_absolute_uri(field_value.url)
+            else:
+                profile_image = str(field_value or "")
         except Exception:
             profile_image = ""
 

@@ -152,6 +152,19 @@ def _remote_like_matches_user(raw_like, user):
     return bool(candidate_ids.intersection(local_ids))
 
 
+def _normalized_local_author_ids(user):
+    base = _site_url()
+    return {
+        _normalize_author_id(f"{base}/authors/{user.id}"),
+        _normalize_author_id(f"{base}/authors/api/authors/{user.id}"),
+    }
+
+
+def _remote_like_entry_matches_user(entry, user):
+    candidate = _normalize_author_id((entry or {}).get("author_id", ""))
+    return bool(candidate and candidate in _normalized_local_author_ids(user))
+
+
 def _parse_datetime(value):
     from datetime import datetime
     from django.utils import timezone
@@ -733,43 +746,6 @@ def _send_remote_like(user, post):
 
     like_urls = _candidate_remote_likes_urls(post)
     auth_candidates = _auth_candidates_for_post(post)
-    already_liked = False
-
-    for likes_url in like_urls:
-        for auth in auth_candidates:
-            existing = _try_get_json(likes_url, auth=auth)
-            existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
-            if isinstance(existing_items, list) and any(
-                isinstance(item, dict) and (
-                    str(item.get("id") or "").strip() == stable_like_id
-                    or _remote_like_matches_user(item, user)
-                )
-                for item in existing_items
-            ):
-                already_liked = True
-                break
-        if already_liked:
-            break
-
-    if already_liked:
-        for likes_url in like_urls:
-            for auth in auth_candidates:
-                try:
-                    resp = requests.delete(
-                        likes_url,
-                        json=payload,
-                        auth=auth,
-                        timeout=5,
-                        allow_redirects=False,
-                        headers={
-                            "Accept": "application/json",
-                            "Content-Type": "application/json",
-                        },
-                    )
-                    if resp.status_code in [200, 202, 204, 404]:
-                        return True
-                except Exception:
-                    continue
 
     for likes_url in like_urls:
         for auth in auth_candidates:
@@ -792,7 +768,7 @@ def _send_remote_like(user, post):
 
     # Fallback for nodes that only accept Like/Unlike through inbox delivery.
     inbox_payload = payload.copy()
-    inbox_payload["type"] = "unlike" if already_liked else "like"
+    inbox_payload["type"] = "like"
     for inbox_url in _candidate_remote_inbox_urls(post):
         for auth in auth_candidates:
             try:
@@ -847,45 +823,8 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
         "published": timezone.now().isoformat(),
     }
 
-    like_urls = _url_variants(likes_url)
+    like_urls = _post_url_variants(likes_url)
     auth_candidates = _auth_candidates_for_post(post)
-    already_liked = False
-
-    for candidate_url in like_urls:
-        for auth in auth_candidates:
-            existing = _try_get_json(candidate_url, auth=auth)
-            existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
-            if isinstance(existing_items, list) and any(
-                isinstance(item, dict) and (
-                    str(item.get("id") or "").strip() == stable_like_id
-                    or _remote_like_matches_user(item, user)
-                )
-                for item in existing_items
-            ):
-                already_liked = True
-                break
-        if already_liked:
-            break
-
-    if already_liked:
-        for candidate_url in like_urls:
-            for auth in auth_candidates:
-                try:
-                    resp = requests.delete(
-                        candidate_url,
-                        json=payload,
-                        auth=auth,
-                        timeout=5,
-                        allow_redirects=False,
-                        headers={
-                            "Accept": "application/json",
-                            "Content-Type": "application/json",
-                        },
-                    )
-                    if resp.status_code in [200, 202, 204, 404]:
-                        return True
-                except Exception:
-                    continue
 
     for candidate_url in like_urls:
         for auth in auth_candidates:
@@ -955,6 +894,8 @@ def stream(request):
         .order_by("-published", "-created")
     )
 
+    all_posts.sort(key=lambda p: (p.effective_published or p.created), reverse=True)
+
     local_posts = [p for p in all_posts if not p.is_remote]
 
     post_liked_ids = set(
@@ -970,6 +911,8 @@ def stream(request):
         ).values_list("comment_id", flat=True)
     )
 
+    refreshed_remote = 0
+    max_remote_refresh = int(getattr(settings, "FEDERATION_STREAM_REMOTE_REFRESH", 8) or 8)
     for p in all_posts:
         if p.is_remote:
             _sanitize_cached_remote_post(p)
@@ -983,9 +926,20 @@ def stream(request):
             p.comment_list = []
             p.remote_comment_list = []
             p.remote_like_list = []
-            p.comment_count = int(getattr(p, "remote_comment_count", 0) or 0)
-            p.like_count = int(getattr(p, "remote_like_count", 0) or 0)
-            p.liked_by_me = False
+
+            if refreshed_remote < max_remote_refresh:
+                remote_comments = _fetch_remote_comments(p, viewer=user, include_like_state=False)
+                remote_likes = _fetch_remote_likes(p)
+                p.remote_comment_list = remote_comments[:3]
+                p.remote_like_list = remote_likes
+                p.comment_count = len(remote_comments)
+                p.like_count = len(remote_likes)
+                p.liked_by_me = any(_remote_like_entry_matches_user(item, user) for item in remote_likes)
+                refreshed_remote += 1
+            else:
+                p.comment_count = 0
+                p.like_count = 0
+                p.liked_by_me = False
         else:
             p.like_count = p.likes.count()
             p.comment_count = p.comments.count()
