@@ -496,6 +496,57 @@ def _candidate_remote_likes_urls(post):
 def _auth_candidates_for_post(post):
     auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
     return [auth, None] if auth else [None]
+
+
+def _candidate_remote_author_urls(post):
+    urls = []
+
+    explicit = (getattr(post, "remote_author_url", "") or "").strip()
+    if explicit:
+        urls.extend(_url_variants(explicit))
+
+    remote_id = str(post.remote_id or "").strip()
+    marker = "/posts/"
+    if marker in remote_id:
+        author_part = remote_id.split(marker)[0].rstrip("/")
+        if author_part:
+            urls.extend(_url_variants(author_part))
+
+    expanded = []
+    for url in urls:
+        base = url.rstrip("/")
+        expanded.extend(_url_variants(base))
+        if "/api/authors/" in base:
+            expanded.extend(_url_variants(base.replace("/api/authors/", "/authors/")))
+            expanded.extend(_url_variants(base.replace("/api/authors/", "/authors/api/authors/")))
+        elif "/authors/api/authors/" in base:
+            expanded.extend(_url_variants(base.replace("/authors/api/authors/", "/authors/")))
+            expanded.extend(_url_variants(base.replace("/authors/api/authors/", "/api/authors/")))
+        elif "/authors/" in base:
+            expanded.extend(_url_variants(base.replace("/authors/", "/api/authors/")))
+            expanded.extend(_url_variants(base.replace("/authors/", "/authors/api/authors/")))
+
+    deduped = []
+    seen = set()
+    for value in expanded:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
+def _candidate_remote_inbox_urls(post):
+    inboxes = []
+    for author_url in _candidate_remote_author_urls(post):
+        inboxes.extend(_url_variants(f"{author_url.rstrip('/')}/inbox"))
+
+    deduped = []
+    seen = set()
+    for value in inboxes:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
     
 def _fetch_remote_comments(post, viewer=None, include_like_state=True):
     data = None
@@ -593,6 +644,7 @@ def _send_remote_comment(user, post, text):
         "author": _local_author_payload(user),
         "comment": text,
         "contentType": "text/plain",
+        "object": str(post.remote_id or ""),
         "published": timezone.now().isoformat(),
     }
 
@@ -601,6 +653,25 @@ def _send_remote_comment(user, post, text):
             try:
                 resp = requests.post(
                     comments_url,
+                    json=payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
+
+    # Some nodes only accept interaction activities via author inbox.
+    for inbox_url in _candidate_remote_inbox_urls(post):
+        for auth in _auth_candidates_for_post(post):
+            try:
+                resp = requests.post(
+                    inbox_url,
                     json=payload,
                     auth=auth,
                     timeout=5,
@@ -672,6 +743,27 @@ def _send_remote_like(user, post):
                 resp = requests.post(
                     likes_url,
                     json=payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
+
+    # Fallback for nodes that only accept Like/Unlike through inbox delivery.
+    inbox_payload = payload.copy()
+    inbox_payload["type"] = "unlike" if already_liked else "like"
+    for inbox_url in _candidate_remote_inbox_urls(post):
+        for auth in auth_candidates:
+            try:
+                resp = requests.post(
+                    inbox_url,
+                    json=inbox_payload,
                     auth=auth,
                     timeout=5,
                     headers={
@@ -853,8 +945,8 @@ def stream(request):
             remote_likes = _fetch_remote_likes(p)
             p.remote_comment_list = remote_comments[:3]
             p.remote_like_list = remote_likes
-            p.comment_count = len(remote_comments)
-            p.like_count = len(remote_likes)
+            p.comment_count = max(len(remote_comments), int(getattr(p, "remote_comment_count", 0) or 0))
+            p.like_count = max(len(remote_likes), int(getattr(p, "remote_like_count", 0) or 0))
             p.liked_by_me = any(
                 _normalize_author_id(l.get("author_id")) in {
                     _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),

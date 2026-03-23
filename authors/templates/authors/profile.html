@@ -183,16 +183,21 @@
                     style="
                         display: flex;
                         gap: 16px;
+                        justify-content: space-between;
+                        align-items: center;
                         font-size: 0.9rem;
                         color: var(--muted);
                         border-top: 1px solid #eee;
                         padding-top: 12px;
                     "
                 >
-                    <span>
-                        {% if post.liked_by_me %}❤️{% else %}🤍{% endif %} {{ post.like_count|default:0 }} Likes
-                    </span>
-                    <span>💬 {{ post.comment_count|default:0 }} Comments</span>
+                    <div style="display: flex; gap: 16px;">
+                        <span>
+                            {% if post.liked_by_me %}❤️{% else %}🤍{% endif %} {{ post.like_count|default:0 }} Likes
+                        </span>
+                        <span>💬 {{ post.comment_count|default:0 }} Comments</span>
+                    </div>
+                    <a href="{% url 'posts:detail' post.id %}" class="pill" style="text-decoration: none;">View details</a>
                 </footer>
             </article>
             {% empty %}

@@ -170,12 +170,33 @@ def author_profile(request, pk):
             p.rendered = None
 
         if p.is_remote:
-            p.like_count = 0
-            p.comment_count = 0
+            try:
+                from posts.views import (
+                    _fetch_remote_comments,
+                    _fetch_remote_likes,
+                    _normalize_author_id,
+                    _site_url,
+                )
+
+                remote_comments = _fetch_remote_comments(p, viewer=request.user, include_like_state=False)
+                remote_likes = _fetch_remote_likes(p)
+                p.like_count = max(len(remote_likes), int(getattr(p, "remote_like_count", 0) or 0))
+                p.comment_count = max(len(remote_comments), int(getattr(p, "remote_comment_count", 0) or 0))
+                p.liked_by_me = any(
+                    _normalize_author_id(l.get("author_id")) in {
+                        _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
+                        _normalize_author_id(f"{_site_url()}/authors/api/authors/{request.user.id}"),
+                    }
+                    for l in remote_likes
+                )
+            except Exception:
+                p.like_count = int(getattr(p, "remote_like_count", 0) or 0)
+                p.comment_count = int(getattr(p, "remote_comment_count", 0) or 0)
+                p.liked_by_me = False
         else:
             p.like_count = p.likes.count()
             p.comment_count = p.comments.count()
-        p.liked_by_me = p.id in post_liked_ids
+            p.liked_by_me = p.id in post_liked_ids
 
     # 4. Fetch and Format Github activity
     github_events = []
