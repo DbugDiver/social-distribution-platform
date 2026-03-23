@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from authors.models import Author, Follower
+from node.registry import get_configured_nodes, get_node_auth
 from .forms import PostForm
 from .models import Comment, Like, Post
 import uuid
@@ -84,11 +85,7 @@ def _site_url():
 # ---------- Federation HTTP helpers ----------
 
 def _auth_for_node(node_url):
-    creds = getattr(settings, "REMOTE_NODE_CREDENTIALS", {}) or {}
-    info = creds.get(node_url.rstrip("/"))
-    if info and info.get("username") and info.get("password"):
-        return (info["username"], info["password"])
-    return None
+    return get_node_auth(node_url)
 
 
 def _candidate_post_endpoints(node_url):
@@ -224,7 +221,7 @@ def _upsert_remote_post_cache(data):
 def _fetch_remote_public_posts():
     cached = []
 
-    for node in getattr(settings, "REMOTE_NODES", []):
+    for node in get_configured_nodes(exclude_local=True):
         node = node.rstrip("/")
         if node == _site_url():
             continue

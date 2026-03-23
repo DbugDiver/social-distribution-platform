@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 
 from authors.models import Author, Follower
+from node.registry import get_node_auth
 from .models import Comment, Like, Post
 
 
@@ -474,13 +475,7 @@ def like_detail_api(request, like_id):
 
 
 def _auth_for_node(node_url):
-    if not node_url:
-        return None
-    creds = getattr(settings, "REMOTE_NODE_CREDENTIALS", {}) or {}
-    info = creds.get(node_url.rstrip("/"))
-    if info and info.get("username") and info.get("password"):
-        return (info["username"], info["password"])
-    return None
+    return get_node_auth(node_url)
 
 
 def _remote_author_obj_from_post(post: Post):

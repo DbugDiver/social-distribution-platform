@@ -16,6 +16,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 
 from posts.models import Like, Post
+from node.registry import get_configured_nodes, get_node_auth
 
 from .forms import AuthorUpdateForm
 from .models import Author, Follower, Notification
@@ -665,14 +666,7 @@ def _host_from_author_url(author_url):
 
 
 def _auth_for_node(node_url):
-    # Federation: per-node basic auth credentials are configured in settings via env.
-    if not node_url:
-        return None
-    creds = getattr(settings, "REMOTE_NODE_CREDENTIALS", {}) or {}
-    info = creds.get(node_url.rstrip("/"))
-    if info and info.get("username") and info.get("password"):
-        return (info["username"], info["password"])
-    return None
+    return get_node_auth(node_url)
 
 
 def _remote_username_seed(remote_id):
@@ -988,7 +982,7 @@ def author_search(request):
             })
 
         # REMOTE
-        for node in settings.REMOTE_NODES:
+        for node in get_configured_nodes(exclude_local=True):
             url = f"{node}/authors/api/authors/?search={query}"
 
             data = _try_get_json(url, auth=_auth_for_node(node))

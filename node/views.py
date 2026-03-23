@@ -1,9 +1,13 @@
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.decorators import user_passes_test
 from django.shortcuts import render, redirect, get_object_or_404
 import requests
 
 from authors.models import Author
+from .forms import NodeForm
+from .models import Node
+from .registry import get_configured_nodes, get_node_auth
 from posts.models import Post
 
 
@@ -12,11 +16,7 @@ def superuser_required(user):
 
 
 def _auth_for_node(node_url):
-    creds = getattr(settings, "REMOTE_NODE_CREDENTIALS", {}) or {}
-    info = creds.get((node_url or "").rstrip("/"))
-    if info and info.get("username") and info.get("password"):
-        return (info["username"], info["password"])
-    return None
+    return get_node_auth(node_url)
 
 
 def _federated_authors():
@@ -38,7 +38,7 @@ def _federated_authors():
         seen.add((local_site, author.username.lower()))
 
     # Remote authors from configured peer nodes.
-    for node in getattr(settings, "REMOTE_NODES", []):
+    for node in get_configured_nodes(exclude_local=True):
         node = (node or "").rstrip("/")
         if not node or node == local_site:
             continue
@@ -118,6 +118,34 @@ def node_admin_dashboard(request):
         "superusers": Author.objects.filter(is_superuser=True).count(),
     }
     return render(request, "node/dashboard.html", context)
+
+
+@user_passes_test(superuser_required)
+def manage_nodes(request):
+    if request.method == "POST":
+        form = NodeForm(request.POST)
+        if form.is_valid():
+            node = form.save(commit=False)
+            node.host = (node.host or "").rstrip("/")
+            if node.host == settings.SITE_URL.rstrip("/"):
+                messages.error(request, "Cannot add this server as a remote node.")
+            else:
+                node.save()
+                messages.success(request, "Remote node saved.")
+                return redirect("manage-nodes")
+    else:
+        form = NodeForm()
+
+    nodes = Node.objects.all().order_by("host")
+    return render(request, "node/management.html", {"form": form, "nodes": nodes})
+
+
+@user_passes_test(superuser_required)
+def delete_node(request, node_id):
+    node = get_object_or_404(Node, pk=node_id)
+    node.delete()
+    messages.success(request, "Remote node removed.")
+    return redirect("manage-nodes")
 
 @user_passes_test(superuser_required)
 def approvals(request):
