@@ -1,5 +1,6 @@
 from datetime import datetime
 import uuid
+import re
 from urllib.parse import quote, unquote, urlparse
 from socket import timeout
 from django.views.decorators.csrf import csrf_exempt
@@ -38,7 +39,18 @@ def author_profile(request, pk):
     # For remote proxy rows, hydrate details from the canonical remote author endpoint.
     if author.is_remote and author.remote_id:
         node_url = _host_from_author_url(author.remote_id)
+        
+        # Try primary endpoint first
         remote_doc = _try_get_json(author.remote_id, auth=_auth_for_node(node_url))
+        
+        # If primary fails, try alternative endpoints (some servers use different paths)
+        if not remote_doc and node_url:
+            remote_id_clean = (author.remote_id or "").rstrip("/")
+            # Try without /api/authors/ wrapper
+            if "/api/authors/" in remote_id_clean:
+                alt_endpoint = remote_id_clean.replace("/api/authors/", "/authors/")
+                remote_doc = _try_get_json(alt_endpoint, auth=_auth_for_node(node_url))
+        
         if isinstance(remote_doc, dict):
             remote_display_name = (remote_doc.get("displayName") or "").strip()
             remote_username = (remote_doc.get("username") or "").strip()
@@ -139,6 +151,14 @@ def author_profile(request, pk):
     )
 
     for p in posts:
+        # Sanitize remote posts (clean up base64 content)
+        if p.is_remote:
+            try:
+                from posts.views import _sanitize_cached_remote_post
+                _sanitize_cached_remote_post(p)
+            except Exception:
+                pass
+        
         # Convert markdown if needed
         if getattr(p, "content_type", "") == "text/markdown" and md:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
@@ -820,12 +840,43 @@ def _post_remote_inbox(author_url, payload):
 
 
 def _looks_like_base64_image_blob(value):
+    """Detect base64-encoded image data with high confidence.
+    
+    Checks for:
+    - Known image format signatures (JPEG, PNG, GIF, WebP, BMP, etc)
+    - Long continuous alphanumeric strings that match base64 pattern
+    - Excludes data URLs and real URLs
+    """
     raw = (value or "").strip()
-    if len(raw) < 128:
+    
+    # Skip if too short, already a data URL, or looks like a real URL
+    if len(raw) < 100:
         return False
-    if raw.startswith("data:image/"):
+    if raw.startswith(("data:", "http://", "https://", "/")):
         return False
-    return raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR"))
+    
+    # Check for common image base64 signatures: jpeg, png, gif, webp, bmp, tiff
+    if raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR", "QkI", "TU4g", "II4g")):
+        return True
+    
+    # Additional check: long base64-like string (mostly alphanumeric + /+= with good entropy)
+    if len(raw) > 150:
+        # Remove padding and common separators
+        clean = raw.replace("=", "").replace("+", "").replace("/", "").replace("\n", "").replace("\r", "").replace(" ", "")
+        
+        # If it's a very long continuous alphanumeric string, likely base64 encoded binary
+        if re.match(r"^[A-Za-z0-9]{100,}$", clean):
+            # Count uppercase/lowercase to filter out things like "aaaaaa..."
+            upper = sum(1 for c in raw if c.isupper())
+            lower = sum(1 for c in raw if c.islower())
+            nums = sum(1 for c in raw if c.isdigit())
+            
+            # Real base64 has good mix of cases and numbers
+            if upper > 5 and lower > 5 and (upper + lower + nums) / len(raw) > 0.9:
+                return True
+    
+    return False
+
 
 
 def _extract_remote_image_and_content(entry_payload):

@@ -1,9 +1,11 @@
 from datetime import datetime
 import hashlib
+import re
 from urllib.parse import urljoin
 
 import markdown as md
 import requests
+import uuid
 from django.conf import settings
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.db.models import Q
@@ -15,9 +17,6 @@ from authors.models import Author, Follower
 from node.registry import get_configured_nodes, get_node_auth
 from .forms import PostForm
 from .models import Comment, Like, Post
-import uuid
-import requests
-from django.conf import settings
 
 # ---------- Markdown ----------
 
@@ -157,13 +156,42 @@ def _parse_datetime(value):
 
 
 def _looks_like_base64_image_blob(value):
+    """Detect base64-encoded image data with high confidence.
+    
+    Checks for:
+    - Known image format signatures (JPEG, PNG, GIF, WebP, BMP, etc)
+    - Long continuous alphanumeric strings that match base64 pattern
+    - Excludes data URLs and real URLs
+    """
     raw = (value or "").strip()
-    if len(raw) < 128:
+    
+    # Skip if too short, already a data URL, or looks like a real URL
+    if len(raw) < 100:
         return False
-    if raw.startswith("data:image/"):
+    if raw.startswith(("data:", "http://", "https://", "/")):
         return False
-    # Common image base64 signatures: jpeg, png, gif, webp.
-    return raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR"))
+    
+    # Check for common image base64 signatures: jpeg, png, gif, webp, bmp, tiff
+    if raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR", "QkI", "TU4g", "II4g")):
+        return True
+    
+    # Additional check: long base64-like string (mostly alphanumeric + /+= with good entropy)
+    if len(raw) > 150:
+        # Remove padding and common separators
+        clean = raw.replace("=", "").replace("+", "").replace("/", "").replace("\n", "").replace("\r", "").replace(" ", "")
+        
+        # If it's a very long continuous alphanumeric string, likely base64 encoded binary
+        if re.match(r"^[A-Za-z0-9]{100,}$", clean):
+            # Count uppercase/lowercase to filter out things like "aaaaaa..."
+            upper = sum(1 for c in raw if c.isupper())
+            lower = sum(1 for c in raw if c.islower())
+            nums = sum(1 for c in raw if c.isdigit())
+            
+            # Real base64 has good mix of cases and numbers
+            if upper > 5 and lower > 5 and (upper + lower + nums) / len(raw) > 0.9:
+                return True
+    
+    return False
 
 
 
