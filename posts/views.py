@@ -861,8 +861,7 @@ def create(request):
             post.remote_author_host = None
             # If an image was uploaded, treat this as an image post for federation.
             if post.image and not post.content:
-                # Default to PNG; you can branch on file extension if you want.
-                post.content_type = Post.ContentType.IMAGE_PNG
+                post.content_type = Post.ContentType.MARKDOWN
             post.published = timezone.now()
             post.save()
 
