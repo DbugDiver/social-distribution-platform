@@ -156,6 +156,16 @@ def _parse_datetime(value):
         return timezone.now()
 
 
+def _looks_like_base64_image_blob(value):
+    raw = (value or "").strip()
+    if len(raw) < 128:
+        return False
+    if raw.startswith("data:image/"):
+        return False
+    # Common image base64 signatures: jpeg, png, gif, webp.
+    return raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR"))
+
+
 
 def _normalize_remote_post(raw, node_url):
     author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
@@ -164,13 +174,30 @@ def _normalize_remote_post(raw, node_url):
     likes_obj = raw.get("likes") if isinstance(raw.get("likes"), dict) else {}
     
     image_url = (raw.get("image") or "").strip()
+    content = (raw.get("content") or "")
+    if isinstance(content, str):
+        content = content.strip()
+
+    # Some peers send image data in content as raw base64; convert it to a data URL.
+    if not image_url and isinstance(content, str):
+        if content.startswith("data:image/"):
+            image_url = content
+            content = ""
+        elif _looks_like_base64_image_blob(content):
+            image_url = f"data:image/jpeg;base64,{content}"
+            content = ""
+
+    # Handle peers that put raw base64 directly in the image field.
+    if image_url and _looks_like_base64_image_blob(image_url):
+        image_url = f"data:image/jpeg;base64,{image_url}"
+
     if image_url.startswith("/") and node_url:
         image_url = f"{node_url.rstrip('/')}{image_url}"
 
     return {
         "remote_id": str(remote_post_id) if remote_post_id else "",
         "title": raw.get("title") or "",
-        "content": raw.get("content") or "",
+        "content": content,
         "content_type": raw.get("contentType") or raw.get("content_type") or Post.ContentType.PLAIN,
         "visibility": raw.get("visibility") or Post.Visibility.PUBLIC,
         "published": raw.get("published") or raw.get("created") or raw.get("updated"),
