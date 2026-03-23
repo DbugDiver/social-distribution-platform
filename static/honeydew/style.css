@@ -182,6 +182,14 @@ body{
     box-shadow: 0 8px 20px rgba(0,0,0,0.06);
 }
 
+.post-image-wrapper img {
+    width: 100%;
+    height: 320px;
+    object-fit: cover;
+    display: block;
+    border-radius: 16px;
+}
+
 /* Ensures images stay proportional and never stretch */
 .post-content img,
 .post-image {
