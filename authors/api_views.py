@@ -2,7 +2,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from django.conf import settings
 from django.db.models import Q
 from django.core.paginator import EmptyPage, Paginator
 from django.shortcuts import get_object_or_404
@@ -12,6 +11,7 @@ from .models import Author, Follower
 from .serializers import AuthorSerializer
 from django.http import JsonResponse
 from posts.models import Post
+from node.registry import get_configured_nodes
 
 
 # ---------------------------------------------------
@@ -85,7 +85,7 @@ def api_get_all_authors(request):
 
     # Federation lookup: include remote matches directly from peer nodes.
     if query and include_remote_lookup:
-        for node in getattr(settings, "REMOTE_NODES", []):
+        for node in get_configured_nodes(exclude_local=True):
             node = (node or "").rstrip("/")
             if not node:
                 continue

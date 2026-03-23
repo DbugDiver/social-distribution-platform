@@ -10,17 +10,6 @@ def get_configured_nodes(exclude_local=True):
     seen = set()
     nodes = []
 
-    for node in getattr(settings, "REMOTE_NODES", []) or []:
-        n = _normalize(node)
-        if not n:
-            continue
-        if exclude_local and n == local_site:
-            continue
-        if n in seen:
-            continue
-        seen.add(n)
-        nodes.append(n)
-
     try:
         from .models import Node
 
@@ -58,8 +47,5 @@ def get_node_auth(node_url):
     except Exception:
         pass
 
-    creds = getattr(settings, "REMOTE_NODE_CREDENTIALS", {}) or {}
-    info = creds.get(n)
-    if info and info.get("username") and info.get("password"):
-        return (info["username"], info["password"])
+    # Restrict federation auth to explicitly registered Node Management entries.
     return None
