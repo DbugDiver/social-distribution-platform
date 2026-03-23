@@ -783,3 +783,326 @@ class RestAndDatabaseTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["type"], "entry")
         self.assertEqual(payload["likes"]["count"], 1)
+        
+"""
+Rosy: I want to test remote users behavior for posting, getting likes, comment, and streaming other nodes's posts:
+Help me refactor my existing tests to get similar ones for remote
+Respose: RemoteNodesApiTests class is referenced from it
+Citation: chatGpt 5.2, OpenAI, 2026-03-23, https://chatgpt.com/share/69c18362-fb7c-8006-9a07-8d48d63f979e
+"""
+class RemoteNodesApiTests(TestCase):
+    def setUp(self):
+        self.local_author = Author.objects.create_user(
+            username="local_author",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Local Author",
+        )
+        self.local_reader = Author.objects.create_user(
+            username="local_reader",
+            password="pass12345",
+            host="http://testserver/",
+            displayName="Local Reader",
+        )
+
+        self.client.force_login(self.local_reader)
+
+        self.public_post = Post.objects.create(
+            author=self.local_author,
+            title="Local Public Post",
+            content="Visible to remote nodes",
+            visibility=Post.Visibility.PUBLIC,
+            is_remote=False,
+        )
+
+    def _public_comments_url(self, post):
+        return reverse(
+            "posts:api-public-post-comments",
+            kwargs={"author_id": post.author_id, "post_id": post.id},
+        )
+
+    def _public_post_likes_url(self, post):
+        return reverse(
+            "posts:api-public-post-likes",
+            kwargs={"author_id": post.author_id, "post_id": post.id},
+        )
+
+    def _public_comment_likes_url(self, post, comment):
+        return reverse(
+            "posts:api-public-comment-likes",
+            kwargs={
+                "author_id": post.author_id,
+                "post_id": post.id,
+                "comment_id": comment.id,
+            },
+        )
+
+    def test_remote_node_can_comment_on_public_post(self):
+        payload = {
+            "id": "https://remote-node.example/comments/comment-123",
+            "comment": "Hello from remote node",
+            "contentType": "text/plain",
+            "author": {
+                "id": "https://remote-node.example/authors/remote-user-1",
+                "host": "https://remote-node.example/",
+                "displayName": "Remote User One",
+            },
+        }
+
+        response = self.client.post(
+            self._public_comments_url(self.public_post),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+
+        self.assertEqual(body["type"], "comment")
+        self.assertEqual(body["comment"], "Hello from remote node")
+        self.assertEqual(body["author"]["displayName"], "Remote User One")
+
+        comment = Comment.objects.get(remote_id="https://remote-node.example/comments/comment-123")
+        self.assertTrue(comment.is_remote)
+        self.assertIsNone(comment.author)
+        self.assertEqual(comment.remote_author_url, "https://remote-node.example/authors/remote-user-1")
+        self.assertEqual(comment.remote_author_host, "https://remote-node.example/")
+        self.assertEqual(comment.remote_author_name, "Remote User One")
+
+    def test_remote_node_duplicate_comment_returns_200_and_does_not_duplicate_row(self):
+        payload = {
+            "id": "https://remote-node.example/comments/comment-duplicate",
+            "comment": "Remote duplicate comment",
+            "contentType": "text/plain",
+            "author": {
+                "id": "https://remote-node.example/authors/remote-user-2",
+                "host": "https://remote-node.example/",
+                "displayName": "Remote User Two",
+            },
+        }
+
+        first = self.client.post(
+            self._public_comments_url(self.public_post),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        second = self.client.post(
+            self._public_comments_url(self.public_post),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(
+            Comment.objects.filter(remote_id="https://remote-node.example/comments/comment-duplicate").count(),
+            1,
+        )
+
+    def test_remote_node_can_like_public_post(self):
+        payload = {
+            "id": "https://remote-node.example/likes/like-123",
+            "author": {
+                "id": "https://remote-node.example/authors/remote-liker-1",
+                "host": "https://remote-node.example/",
+                "displayName": "Remote Liker",
+            },
+        }
+
+        response = self.client.post(
+            self._public_post_likes_url(self.public_post),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+
+        self.assertEqual(body["type"], "like")
+        self.assertEqual(body["author"]["displayName"], "Remote Liker")
+
+        like = Like.objects.get(remote_id="https://remote-node.example/likes/like-123")
+        self.assertTrue(like.is_remote)
+        self.assertIsNone(like.author)
+        self.assertEqual(like.post, self.public_post)
+        self.assertEqual(like.remote_author_name, "Remote Liker")
+
+    def test_remote_node_duplicate_post_like_returns_200_and_does_not_duplicate_row(self):
+        payload = {
+            "id": "https://remote-node.example/likes/post-like-dup",
+            "author": {
+                "id": "https://remote-node.example/authors/remote-liker-2",
+                "host": "https://remote-node.example/",
+                "displayName": "Remote Liker Two",
+            },
+        }
+
+        first = self.client.post(
+            self._public_post_likes_url(self.public_post),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        second = self.client.post(
+            self._public_post_likes_url(self.public_post),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(
+            Like.objects.filter(remote_id="https://remote-node.example/likes/post-like-dup").count(),
+            1,
+        )
+
+    def test_remote_node_can_like_public_comment(self):
+        comment = Comment.objects.create(
+            post=self.public_post,
+            author=self.local_author,
+            comment="Local comment for remote like target",
+        )
+
+        payload = {
+            "id": "https://remote-node.example/likes/comment-like-123",
+            "author": {
+                "id": "https://remote-node.example/authors/remote-liker-3",
+                "host": "https://remote-node.example/",
+                "displayName": "Remote Comment Liker",
+            },
+        }
+
+        response = self.client.post(
+            self._public_comment_likes_url(self.public_post, comment),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+
+        self.assertEqual(body["type"], "like")
+        self.assertEqual(body["author"]["displayName"], "Remote Comment Liker")
+
+        like = Like.objects.get(remote_id="https://remote-node.example/likes/comment-like-123")
+        self.assertTrue(like.is_remote)
+        self.assertIsNone(like.author)
+        self.assertEqual(like.comment, comment)
+
+    def test_remote_node_can_unlike_public_post_by_remote_id(self):
+        Like.objects.create(
+            is_remote=True,
+            post=self.public_post,
+            remote_id="https://remote-node.example/likes/remove-me",
+            remote_author_url="https://remote-node.example/authors/remote-liker-4",
+            remote_author_name="Remote Remove",
+            remote_author_host="https://remote-node.example/",
+        )
+
+        payload = {
+            "id": "https://remote-node.example/likes/remove-me",
+            "author": {
+                "id": "https://remote-node.example/authors/remote-liker-4",
+                "host": "https://remote-node.example/",
+                "displayName": "Remote Remove",
+            },
+        }
+
+        response = self.client.delete(
+            self._public_post_likes_url(self.public_post),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["deleted"], 1)
+        self.assertFalse(
+            Like.objects.filter(remote_id="https://remote-node.example/likes/remove-me").exists()
+        )
+
+    def test_remote_public_comments_get_includes_remote_comment(self):
+        Comment.objects.create(
+            post=self.public_post,
+            author=None,
+            comment="Stored remote comment",
+            content_type=Comment.ContentType.PLAIN,
+            is_remote=True,
+            remote_id="https://remote-node.example/comments/stored-1",
+            remote_author_url="https://remote-node.example/authors/remote-user-5",
+            remote_author_name="Stored Remote User",
+            remote_author_host="https://remote-node.example/",
+        )
+
+        response = self.client.get(self._public_comments_url(self.public_post))
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+        self.assertEqual(body["type"], "comments")
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["src"][0]["author"]["displayName"], "Stored Remote User")
+        self.assertEqual(body["src"][0]["comment"], "Stored remote comment")
+
+    def test_remote_public_post_likes_get_includes_remote_like(self):
+        Like.objects.create(
+            is_remote=True,
+            post=self.public_post,
+            remote_id="https://remote-node.example/likes/stored-post-like",
+            remote_author_url="https://remote-node.example/authors/remote-liker-6",
+            remote_author_name="Stored Remote Liker",
+            remote_author_host="https://remote-node.example/",
+        )
+
+        response = self.client.get(self._public_post_likes_url(self.public_post))
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+        self.assertEqual(body["type"], "likes")
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["src"][0]["author"]["displayName"], "Stored Remote Liker")
+
+    def test_remote_public_comment_likes_get_includes_remote_like(self):
+        comment = Comment.objects.create(
+            post=self.public_post,
+            author=self.local_author,
+            comment="Comment with remote like",
+        )
+
+        Like.objects.create(
+            is_remote=True,
+            comment=comment,
+            remote_id="https://remote-node.example/likes/stored-comment-like",
+            remote_author_url="https://remote-node.example/authors/remote-liker-7",
+            remote_author_name="Stored Remote Comment Liker",
+            remote_author_host="https://remote-node.example/",
+        )
+
+        response = self.client.get(self._public_comment_likes_url(self.public_post, comment))
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+        self.assertEqual(body["type"], "likes")
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["src"][0]["author"]["displayName"], "Stored Remote Comment Liker")
+        
+    def test_remote_node_can_view_public_posts(self):
+        response = self.client.get(reverse("posts:api-public-posts"))
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+
+        self.assertEqual(body["type"], "posts")
+        self.assertIn("items", body)
+        self.assertGreaterEqual(len(body["items"]), 1)
+
+        post = body["items"][0]
+
+        self.assertEqual(post["type"], "post")
+        self.assertEqual(post["title"], "Local Public Post")
+        self.assertEqual(post["visibility"], "PUBLIC")
+
+        self.assertIn("id", post)
+        self.assertIn("author", post)
+        self.assertIn("contentType", post)
+        self.assertIn("published", post)
+
+        self.assertEqual(post["author"]["displayName"], "Local Author")
+        self.assertIn("id", post["author"])
