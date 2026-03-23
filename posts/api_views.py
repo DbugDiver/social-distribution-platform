@@ -15,6 +15,12 @@ from authors.models import Author, Follower
 from node.registry import get_node_auth
 from .models import Comment, Like, Post
 
+"""
+Command: Create a federated stream_api view in Django that combines local and remote posts, 
+supports pagination, and returns a response with type, id, page, size, count, and src.
+Response: stream_api is based on the response generated
+Citation: chatGpt 5.2, OpenAI, 2026-03-23, https://chatgpt.com/c/69c1857e-4d80-832c-9d52-009651074d80
+"""
 
 def _normalized_author_url(value):
     raw = (value or "").strip().rstrip("/")
@@ -521,7 +527,13 @@ def _remote_author_obj_from_post(post: Post):
         "profileImage": profile_image,
     }
 
-
+"""
+Command:Create a modular Django API for a federated social network using helper functions for serialization, 
+permission checks, and pagination. Include support for remote authors and ensure all collection responses 
+follow a consistent format with type, id, page, size, count, and src
+Response: All funtions/methods used in api_views are loosely referenced from the response given
+Citation: chatGpt 5.2, OpenAI, 2026-03-23, https://chatgpt.com/c/69c18637-c8a4-8327-b809-aa8f0e34624d
+"""
 @login_required
 def stream_api(request):
     if request.method != "GET":
@@ -699,7 +711,12 @@ def _like_obj_public(like: Like, request):
         "published": like.created.isoformat(),
     }
 
-
+"""
+Command: Generate a Django REST-style endpoint for public posts that includes pagination, 
+and returns a response with keys: type, count, and src instead of items.
+Response: public_posts_api is based on the response generated
+Citation: chatGpt 5.2, OpenAI, 2026-03-23, https://chatgpt.com/share/69c18545-b8c8-8006-a673-67a5e0b634ae
+"""
 def public_posts_api(request):
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
