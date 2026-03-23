@@ -267,12 +267,10 @@ def post_detail_api(request, author_id, post_id):
         kwargs={"author_id": post.author_id, "post_id": post.id},
     )
 
-    image_url = ""
-    if post.image:
-        try:
-            image_url = request.build_absolute_uri(post.image.url)
-        except (AttributeError, ValueError):
-            pass
+    if post.is_remote:
+        image_url = post.remote_image or ""
+    else:
+        image_url = request.build_absolute_uri(post.image.url) if post.image else ""
 
     payload = {
         "type": "entry",
@@ -770,7 +768,10 @@ def public_posts_api(request):
 
         content_type = post.content_type
         content = post.content
-        image_url = request.build_absolute_uri(post.image.url) if post.image else ""
+        if post.is_remote:
+            image_url = post.remote_image or ""
+        else:
+            image_url = request.build_absolute_uri(post.image.url) if post.image else ""
 
         if post.image and content_type.startswith("image/"):
             try:

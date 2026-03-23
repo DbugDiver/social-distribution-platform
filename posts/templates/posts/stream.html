@@ -107,17 +107,20 @@
             </h3>
           {% endif %}
 
+         {# IMAGE FIRST #}
           {% if post.image or post.remote_image %}
             <div class="post-image-wrapper" style="width:100%; overflow:hidden; border-radius:16px;">
-              {% if post.is_remote and post.remote_image %}
-                <img src="{{ post.remote_image }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;" onerror="this.style.display='none';">
-              {% elif post.image %}
-                <img src="{{ post.image.url }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;">
-              {% endif %}
+              <img
+                src="{{ post.image.url|default:post.remote_image }}"
+                alt="Post image"
+                style="width:100%; height:320px; object-fit:cover; display:block;"
+                onerror="this.style.display='none';"
+              >
             </div>
           {% endif %}
 
-          {% if post.content and not post.content_type|slice:":5" == "image" and not post.contentType|slice:":5" == "image" %}
+          {# TEXT CONTENT #}
+          {% if post.content %}
             <section class="post-text-wrapper">
               {% if post.content_type == "text/markdown" %}
                 <section class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
@@ -130,6 +133,8 @@
                   {{ post.content }}
                 </p>
               {% endif %}
+            </section>
+          {% endif %}
 
               {% if post.content|wordcount > 20 %}
                 <button class="read-more-btn" type="button"

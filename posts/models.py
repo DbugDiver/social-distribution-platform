@@ -7,8 +7,6 @@ class Post(models.Model):
     class ContentType(models.TextChoices):
         PLAIN = "text/plain", "Plain text"
         MARKDOWN = "text/markdown", "Markdown"
-        IMAGE_PNG = "image/png;base64", "Image (PNG, base64)"
-        IMAGE_JPEG = "image/jpeg;base64", "Image (JPEG, base64)"
 
     class Visibility(models.TextChoices):
         PUBLIC = "PUBLIC", "Public"
