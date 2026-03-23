@@ -1,0 +1,31 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Confirm Delete Connection</title>
+        <link rel="stylesheet" href="{% static 'honeydew/style.css' %}" />
+    </head>
+    <body class="delete-page">
+        <div class="delete-card">
+            <h2 class="delete-title">Confirm Deletion</h2>
+            <p class="delete-sub">
+                Are you absolutely sure you want to remove the outbound
+                connection to this node?
+            </p>
+
+            <div class="delete-post-title">{{ node.host }}</div>
+
+            <form method="POST" class="delete-actions">
+                {% csrf_token %}
+                <button type="submit" class="btn-danger">
+                    Yes, Delete Connection
+                </button>
+                <a href="{% url 'node-management' %}" class="btn-cancel"
+                    >Cancel</a
+                >
+            </form>
+        </div>
+    </body>
+</html>
