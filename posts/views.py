@@ -401,19 +401,118 @@ def _local_author_payload(user):
         "displayName": getattr(user, "displayName", "") or getattr(user, "username", "Local User"),
         "url": f"{base}/authors/{user.id}",
     }
-    
-def _fetch_remote_comments(post, viewer=None):
-    comments_url = getattr(post, "remote_comments_url", "") or ""
 
-    if not comments_url:
-        remote_id = str(post.remote_id).rstrip("/")
+
+def _url_variants(url):
+    raw = (url or "").strip()
+    if not raw:
+        return []
+
+    variants = [raw]
+    if raw.endswith("/"):
+        variants.append(raw.rstrip("/"))
+    else:
+        variants.append(f"{raw}/")
+
+    deduped = []
+    seen = set()
+    for value in variants:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
+def _candidate_remote_comments_urls(post):
+    urls = []
+
+    explicit = (getattr(post, "remote_comments_url", "") or "").strip()
+    if explicit:
+        urls.extend(_url_variants(explicit))
+
+    remote_id = str(post.remote_id or "").rstrip("/")
+    if remote_id:
         if "/api/authors/" in remote_id and "/posts/" in remote_id:
-            comments_url = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments/"
+            public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments"
+            api_path = remote_id + "/comments"
+            html_path = remote_id.replace("/api/authors/", "/authors/") + "/comments"
+            urls.extend(_url_variants(public_path))
+            urls.extend(_url_variants(api_path))
+            urls.extend(_url_variants(html_path))
+        elif "/authors/" in remote_id and "/posts/" in remote_id:
+            api_path = remote_id.replace("/authors/", "/api/authors/") + "/comments"
+            public_path = remote_id.replace("/authors/", "/api/public/authors/") + "/comments"
+            html_path = remote_id + "/comments"
+            urls.extend(_url_variants(api_path))
+            urls.extend(_url_variants(public_path))
+            urls.extend(_url_variants(html_path))
         else:
-            comments_url = remote_id + "/comments/"
+            urls.extend(_url_variants(remote_id + "/comments"))
 
+    deduped = []
+    seen = set()
+    for value in urls:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
+def _candidate_remote_likes_urls(post):
+    urls = []
+
+    explicit = (getattr(post, "remote_likes_url", "") or "").strip()
+    if explicit:
+        urls.extend(_url_variants(explicit))
+
+    remote_id = str(post.remote_id or "").rstrip("/")
+    if remote_id:
+        if "/api/authors/" in remote_id and "/posts/" in remote_id:
+            public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/likes"
+            api_path = remote_id + "/likes"
+            html_path = remote_id.replace("/api/authors/", "/authors/") + "/likes"
+            urls.extend(_url_variants(public_path))
+            urls.extend(_url_variants(api_path))
+            urls.extend(_url_variants(html_path))
+        elif "/authors/" in remote_id and "/posts/" in remote_id:
+            api_path = remote_id.replace("/authors/", "/api/authors/") + "/likes"
+            public_path = remote_id.replace("/authors/", "/api/public/authors/") + "/likes"
+            html_path = remote_id + "/likes"
+            urls.extend(_url_variants(api_path))
+            urls.extend(_url_variants(public_path))
+            urls.extend(_url_variants(html_path))
+        else:
+            urls.extend(_url_variants(remote_id + "/likes"))
+
+    deduped = []
+    seen = set()
+    for value in urls:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
+def _auth_candidates_for_post(post):
     auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
-    data = _try_get_json(comments_url, auth=auth)
+    return [auth, None] if auth else [None]
+    
+def _fetch_remote_comments(post, viewer=None, include_like_state=True):
+    data = None
+    comments_url = ""
+
+    candidate_urls = _candidate_remote_comments_urls(post)
+    if not include_like_state:
+        candidate_urls = candidate_urls[:3]
+
+    for candidate_url in candidate_urls:
+        for auth in _auth_candidates_for_post(post):
+            data = _try_get_json(candidate_url, auth=auth)
+            if data:
+                comments_url = candidate_url
+                break
+        if data:
+            break
 
     if not data:
         return []
@@ -435,14 +534,14 @@ def _fetch_remote_comments(post, viewer=None):
             else:
                 comment_likes_url = f"{base_comments_url}/{comment_id}/likes/"
         liked_by_me = False
-        if viewer and comment_likes_url:
-            likes_data = _try_get_json(
-                comment_likes_url,
-                auth=(_auth_for_node(post.node_url.rstrip("/")) if post.node_url else None),
-            )
-            likes_items = likes_data.get("src", likes_data.get("items", [])) if isinstance(likes_data, dict) else likes_data
-            if isinstance(likes_items, list):
-                liked_by_me = any(_remote_like_matches_user(item, viewer) for item in likes_items if isinstance(item, dict))
+        if viewer and include_like_state and comment_likes_url:
+            auth_candidates = _auth_candidates_for_post(post) if include_like_state else _auth_candidates_for_post(post)[:1]
+            for auth in auth_candidates:
+                likes_data = _try_get_json(comment_likes_url, auth=auth)
+                likes_items = likes_data.get("src", likes_data.get("items", [])) if isinstance(likes_data, dict) else likes_data
+                if isinstance(likes_items, list):
+                    liked_by_me = any(_remote_like_matches_user(item, viewer) for item in likes_items if isinstance(item, dict))
+                    break
 
         normalized.append({
             "id": comment_id,
@@ -458,17 +557,15 @@ def _fetch_remote_comments(post, viewer=None):
 
 
 def _fetch_remote_likes(post):
-    likes_url = getattr(post, "remote_likes_url", "") or ""
+    data = None
+    for likes_url in _candidate_remote_likes_urls(post)[:3]:
+        for auth in _auth_candidates_for_post(post)[:1]:
+            data = _try_get_json(likes_url, auth=auth)
+            if data:
+                break
+        if data:
+            break
 
-    if not likes_url:
-        remote_id = str(post.remote_id).rstrip("/")
-        if "/api/authors/" in remote_id and "/posts/" in remote_id:
-            likes_url = remote_id.replace("/api/authors/", "/api/public/authors/") + "/likes/"
-        else:
-            likes_url = remote_id + "/likes/"
-
-    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
-    data = _try_get_json(likes_url, auth=auth)
     if not data:
         return []
 
@@ -490,15 +587,6 @@ def _fetch_remote_likes(post):
 
 
 def _send_remote_comment(user, post, text):
-    comments_url = getattr(post, "remote_comments_url", "") or ""
-
-    if not comments_url:
-        remote_id = str(post.remote_id).rstrip("/")
-        if "/api/authors/" in remote_id and "/posts/" in remote_id:
-            comments_url = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments/"
-        else:
-            comments_url = remote_id + "/comments/"
-
     payload = {
         "type": "comment",
         "id": f"{_site_url()}/federation/comments/{uuid.uuid4()}",
@@ -508,34 +596,27 @@ def _send_remote_comment(user, post, text):
         "published": timezone.now().isoformat(),
     }
 
-    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
-
-    try:
-        resp = requests.post(
-            comments_url,
-            json=payload,
-            auth=auth,
-            timeout=5,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
-        )
-        return resp.status_code in [200, 201, 202]
-    except Exception as e:
-        return False
+    for comments_url in _candidate_remote_comments_urls(post):
+        for auth in _auth_candidates_for_post(post):
+            try:
+                resp = requests.post(
+                    comments_url,
+                    json=payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
+    return False
 
 
 def _send_remote_like(user, post):
-    likes_url = getattr(post, "remote_likes_url", "") or ""
-
-    if not likes_url:
-        remote_id = str(post.remote_id).rstrip("/")
-        if "/api/authors/" in remote_id and "/posts/" in remote_id:
-            likes_url = remote_id.replace("/api/authors/", "/api/public/authors/") + "/likes/"
-        else:
-            likes_url = remote_id + "/likes/"
-
     stable_like_id = f"{_site_url()}/federation/likes/{user.id}/{post.id}"
 
     payload = {
@@ -546,44 +627,64 @@ def _send_remote_like(user, post):
         "published": timezone.now().isoformat(),
     }
 
-    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
+    like_urls = _candidate_remote_likes_urls(post)
+    auth_candidates = _auth_candidates_for_post(post)
+    already_liked = False
 
-    try:
-        existing = _try_get_json(likes_url, auth=auth)
-        existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
-        already_liked = isinstance(existing_items, list) and any(
-            isinstance(item, dict) and (
-                str(item.get("id") or "").strip() == stable_like_id
-                or _remote_like_matches_user(item, user)
-            )
-            for item in existing_items
-        )
-
+    for likes_url in like_urls:
+        for auth in auth_candidates:
+            existing = _try_get_json(likes_url, auth=auth)
+            existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
+            if isinstance(existing_items, list) and any(
+                isinstance(item, dict) and (
+                    str(item.get("id") or "").strip() == stable_like_id
+                    or _remote_like_matches_user(item, user)
+                )
+                for item in existing_items
+            ):
+                already_liked = True
+                break
         if already_liked:
-            resp = requests.delete(
-                likes_url,
-                json=payload,
-                auth=auth,
-                timeout=5,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
-        else:
-            resp = requests.post(
-                likes_url,
-                json=payload,
-                auth=auth,
-                timeout=5,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
-        return resp.status_code in [200, 201, 202, 204]
-    except Exception as e:
-        return False
+            break
+
+    if already_liked:
+        for likes_url in like_urls:
+            for auth in auth_candidates:
+                try:
+                    resp = requests.delete(
+                        likes_url,
+                        json=payload,
+                        auth=auth,
+                        timeout=5,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 202, 204, 404]:
+                        return True
+                except Exception:
+                    continue
+
+    for likes_url in like_urls:
+        for auth in auth_candidates:
+            try:
+                resp = requests.post(
+                    likes_url,
+                    json=payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
+
+    return False
 
 
 def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""):
@@ -618,43 +719,64 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
         "published": timezone.now().isoformat(),
     }
 
-    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
-    try:
-        existing = _try_get_json(likes_url, auth=auth)
-        existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
-        already_liked = isinstance(existing_items, list) and any(
-            isinstance(item, dict) and (
-                str(item.get("id") or "").strip() == stable_like_id
-                or _remote_like_matches_user(item, user)
-            )
-            for item in existing_items
-        )
+    like_urls = _url_variants(likes_url)
+    auth_candidates = _auth_candidates_for_post(post)
+    already_liked = False
 
+    for candidate_url in like_urls:
+        for auth in auth_candidates:
+            existing = _try_get_json(candidate_url, auth=auth)
+            existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
+            if isinstance(existing_items, list) and any(
+                isinstance(item, dict) and (
+                    str(item.get("id") or "").strip() == stable_like_id
+                    or _remote_like_matches_user(item, user)
+                )
+                for item in existing_items
+            ):
+                already_liked = True
+                break
         if already_liked:
-            resp = requests.delete(
-                likes_url,
-                json=payload,
-                auth=auth,
-                timeout=5,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
-        else:
-            resp = requests.post(
-                likes_url,
-                json=payload,
-                auth=auth,
-                timeout=5,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
-        return resp.status_code in [200, 201, 202, 204]
-    except Exception:
-        return False
+            break
+
+    if already_liked:
+        for candidate_url in like_urls:
+            for auth in auth_candidates:
+                try:
+                    resp = requests.delete(
+                        candidate_url,
+                        json=payload,
+                        auth=auth,
+                        timeout=5,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 202, 204, 404]:
+                        return True
+                except Exception:
+                    continue
+
+    for candidate_url in like_urls:
+        for auth in auth_candidates:
+            try:
+                resp = requests.post(
+                    candidate_url,
+                    json=payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
+
+    return False
 
 # ---------- Stream ----------
 
@@ -726,14 +848,20 @@ def stream(request):
             p.rendered = None
 
         if p.is_remote:
-            # Stream view is latency-sensitive: avoid remote comments/likes fan-out here.
-            # Full remote interactions still load on detail pages.
-            p.remote_comment_list = []
-            p.remote_like_list = []
-            p.comment_count = 0
-            p.like_count = 0
-            p.liked_by_me = False
             p.comment_list = []
+            remote_comments = _fetch_remote_comments(p, viewer=request.user, include_like_state=False)
+            remote_likes = _fetch_remote_likes(p)
+            p.remote_comment_list = remote_comments[:3]
+            p.remote_like_list = remote_likes
+            p.comment_count = len(remote_comments)
+            p.like_count = len(remote_likes)
+            p.liked_by_me = any(
+                _normalize_author_id(l.get("author_id")) in {
+                    _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
+                    _normalize_author_id(f"{_site_url()}/authors/api/authors/{request.user.id}"),
+                }
+                for l in remote_likes
+            )
         else:
             p.like_count = p.likes.count()
             p.comment_count = p.comments.count()
