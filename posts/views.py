@@ -1,22 +1,25 @@
 from datetime import datetime
+import time
 import hashlib
+import re
+from functools import lru_cache
 from urllib.parse import urljoin
 
 import markdown as md
 import requests
+import uuid
 from django.conf import settings
 from django.contrib.auth.decorators import login_required, user_passes_test
+from django.core.cache import cache
 from django.db.models import Q
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from authors.models import Author, Follower
+from node.registry import get_configured_nodes, get_node_auth
 from .forms import PostForm
 from .models import Comment, Like, Post
-import uuid
-import requests
-from django.conf import settings
 
 # ---------- Markdown ----------
 
@@ -83,19 +86,23 @@ def _site_url():
 
 # ---------- Federation HTTP helpers ----------
 
+@lru_cache(maxsize=128)
+def _cached_auth_for_node(node_url):
+    return get_node_auth(node_url)
+
+
 def _auth_for_node(node_url):
-    creds = getattr(settings, "REMOTE_NODE_CREDENTIALS", {}) or {}
-    info = creds.get(node_url.rstrip("/"))
-    if info and info.get("username") and info.get("password"):
-        return (info["username"], info["password"])
-    return None
+    normalized = (node_url or "").rstrip("/")
+    if not normalized:
+        return None
+    return _cached_auth_for_node(normalized)
 
 
 def _candidate_post_endpoints(node_url):
     base = node_url.rstrip("/")
     return [f"{base}/api/public-posts/"]
 
-def _try_get_json(url, auth=None, timeout=5):
+def _try_get_json(url, auth=None, timeout=2):
     try:
         resp = requests.get(
             url,
@@ -159,6 +166,48 @@ def _parse_datetime(value):
         return timezone.now()
 
 
+def _looks_like_base64_image_blob(value):
+    """Detect base64-encoded image data with high confidence.
+    
+    Checks for:
+    - Known image format signatures (JPEG, PNG, GIF, WebP, BMP, etc)
+    - Long continuous alphanumeric strings that match base64 pattern
+    - Excludes data URLs and real URLs
+    """
+    raw = (value or "").strip()
+    
+    # Skip if too short, already a data URL, or looks like a real URL
+    if len(raw) < 100:
+        return False
+    if raw.startswith(("data:", "http://", "https://")):
+        return False
+    # Skip slash-prefixed paths, but NOT /9j/ or similar base64 signatures
+    if raw.startswith("/") and not any(c.isdigit() for c in raw[1:6]):
+        return False
+    
+    # Check for common image base64 signatures: jpeg, png, gif, webp, bmp, tiff
+    if raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR", "QkI", "TU4g", "II4g")):
+        return True
+    
+    # Additional check: long base64-like string (mostly alphanumeric + /+= with good entropy)
+    if len(raw) > 150:
+        # Remove padding and common separators
+        clean = raw.replace("=", "").replace("+", "").replace("/", "").replace("\n", "").replace("\r", "").replace(" ", "")
+        
+        # If it's a very long continuous alphanumeric string, likely base64 encoded binary
+        if re.match(r"^[A-Za-z0-9]{100,}$", clean):
+            # Count uppercase/lowercase to filter out things like "aaaaaa..."
+            upper = sum(1 for c in raw if c.isupper())
+            lower = sum(1 for c in raw if c.islower())
+            nums = sum(1 for c in raw if c.isdigit())
+            
+            # Real base64 has good mix of cases and numbers
+            if upper > 5 and lower > 5 and (upper + lower + nums) / len(raw) > 0.9:
+                return True
+    
+    return False
+
+
 
 def _normalize_remote_post(raw, node_url):
     author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
@@ -167,13 +216,34 @@ def _normalize_remote_post(raw, node_url):
     likes_obj = raw.get("likes") if isinstance(raw.get("likes"), dict) else {}
     
     image_url = (raw.get("image") or "").strip()
+    content = (raw.get("content") or "")
+    if isinstance(content, str):
+        content = content.strip()
+
+    # Some peers send image data in content as raw base64; convert it to a data URL.
+    if not image_url and isinstance(content, str):
+        if content.startswith("data:image/"):
+            image_url = content
+            content = ""
+        elif _looks_like_base64_image_blob(content):
+            image_url = f"data:image/jpeg;base64,{content}"
+            content = ""
+
+    # Handle peers that put raw base64 directly in the image field.
+    if image_url and _looks_like_base64_image_blob(image_url):
+        image_url = f"data:image/jpeg;base64,{image_url}"
+
     if image_url.startswith("/") and node_url:
         image_url = f"{node_url.rstrip('/')}{image_url}"
+
+    remote_author_image = (author.get("profileImage") or "").strip()
+    if remote_author_image.startswith("/") and node_url:
+        remote_author_image = f"{node_url.rstrip('/')}{remote_author_image}"
 
     return {
         "remote_id": str(remote_post_id) if remote_post_id else "",
         "title": raw.get("title") or "",
-        "content": raw.get("content") or "",
+        "content": content,
         "content_type": raw.get("contentType") or raw.get("content_type") or Post.ContentType.PLAIN,
         "visibility": raw.get("visibility") or Post.Visibility.PUBLIC,
         "published": raw.get("published") or raw.get("created") or raw.get("updated"),
@@ -181,7 +251,7 @@ def _normalize_remote_post(raw, node_url):
         "remote_author_url": author.get("id") or author.get("url") or "",
         "remote_author_name": author.get("displayName") or author.get("username") or "Remote Author",
         "remote_author_host": author.get("host") or node_url.rstrip("/"),
-        "remote_author_image": author.get("profileImage") or "",
+        "remote_author_image": remote_author_image,
         "remote_image": image_url,
         "remote_comments_url": comments_obj.get("id") or "",
         "remote_likes_url": likes_obj.get("id") or "",
@@ -221,10 +291,48 @@ def _upsert_remote_post_cache(data):
     post.remote_like_count = data["remote_like_count"]
     return post
 
-def _fetch_remote_public_posts():
-    cached = []
 
-    for node in getattr(settings, "REMOTE_NODES", []):
+def _sanitize_cached_remote_post(post):
+    if not post.is_remote:
+        return
+
+    changed_fields = []
+    raw_content = (post.content or "").strip()
+    raw_image = (post.remote_image or "").strip()
+
+    if raw_content:
+        if raw_content.startswith("data:image/"):
+            post.remote_image = raw_content
+            post.content = ""
+            changed_fields.extend(["remote_image", "content"])
+        elif _looks_like_base64_image_blob(raw_content):
+            # Just clear base64 content (can't store as data URL - field size limit)
+            post.content = ""
+            changed_fields.append("content")
+
+    if post.remote_image and _looks_like_base64_image_blob(post.remote_image):
+        post.remote_image = f"data:image/jpeg;base64,{post.remote_image.strip()}"
+        if "remote_image" not in changed_fields:
+            changed_fields.append("remote_image")
+
+    if changed_fields:
+        post.save(update_fields=changed_fields)
+
+def _fetch_remote_public_posts():
+    # Avoid repeated remote fan-out on every page hit.
+    if cache.get("federation_public_posts_refresh_lock"):
+        return []
+
+    cache.set("federation_public_posts_refresh_lock", True, 120)
+    cached = []
+    start = time.monotonic()
+    max_seconds = 4.0
+    max_nodes = int(getattr(settings, "FEDERATION_MAX_NODES", 3) or 3)
+
+    for node in get_configured_nodes(exclude_local=True)[:max_nodes]:
+        if (time.monotonic() - start) > max_seconds:
+            break
+
         node = node.rstrip("/")
         if node == _site_url():
             continue
@@ -293,19 +401,169 @@ def _local_author_payload(user):
         "displayName": getattr(user, "displayName", "") or getattr(user, "username", "Local User"),
         "url": f"{base}/authors/{user.id}",
     }
-    
-def _fetch_remote_comments(post, viewer=None):
-    comments_url = getattr(post, "remote_comments_url", "") or ""
 
-    if not comments_url:
-        remote_id = str(post.remote_id).rstrip("/")
+
+def _url_variants(url):
+    raw = (url or "").strip()
+    if not raw:
+        return []
+
+    variants = [raw]
+    if raw.endswith("/"):
+        variants.append(raw.rstrip("/"))
+    else:
+        variants.append(f"{raw}/")
+
+    deduped = []
+    seen = set()
+    for value in variants:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
+def _candidate_remote_comments_urls(post):
+    urls = []
+
+    explicit = (getattr(post, "remote_comments_url", "") or "").strip()
+    if explicit:
+        urls.extend(_url_variants(explicit))
+
+    remote_id = str(post.remote_id or "").rstrip("/")
+    if remote_id:
         if "/api/authors/" in remote_id and "/posts/" in remote_id:
-            comments_url = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments/"
+            public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments"
+            api_path = remote_id + "/comments"
+            html_path = remote_id.replace("/api/authors/", "/authors/") + "/comments"
+            urls.extend(_url_variants(public_path))
+            urls.extend(_url_variants(api_path))
+            urls.extend(_url_variants(html_path))
+        elif "/authors/" in remote_id and "/posts/" in remote_id:
+            api_path = remote_id.replace("/authors/", "/api/authors/") + "/comments"
+            public_path = remote_id.replace("/authors/", "/api/public/authors/") + "/comments"
+            html_path = remote_id + "/comments"
+            urls.extend(_url_variants(api_path))
+            urls.extend(_url_variants(public_path))
+            urls.extend(_url_variants(html_path))
         else:
-            comments_url = remote_id + "/comments/"
+            urls.extend(_url_variants(remote_id + "/comments"))
 
+    deduped = []
+    seen = set()
+    for value in urls:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
+def _candidate_remote_likes_urls(post):
+    urls = []
+
+    explicit = (getattr(post, "remote_likes_url", "") or "").strip()
+    if explicit:
+        urls.extend(_url_variants(explicit))
+
+    remote_id = str(post.remote_id or "").rstrip("/")
+    if remote_id:
+        if "/api/authors/" in remote_id and "/posts/" in remote_id:
+            public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/likes"
+            api_path = remote_id + "/likes"
+            html_path = remote_id.replace("/api/authors/", "/authors/") + "/likes"
+            urls.extend(_url_variants(public_path))
+            urls.extend(_url_variants(api_path))
+            urls.extend(_url_variants(html_path))
+        elif "/authors/" in remote_id and "/posts/" in remote_id:
+            api_path = remote_id.replace("/authors/", "/api/authors/") + "/likes"
+            public_path = remote_id.replace("/authors/", "/api/public/authors/") + "/likes"
+            html_path = remote_id + "/likes"
+            urls.extend(_url_variants(api_path))
+            urls.extend(_url_variants(public_path))
+            urls.extend(_url_variants(html_path))
+        else:
+            urls.extend(_url_variants(remote_id + "/likes"))
+
+    deduped = []
+    seen = set()
+    for value in urls:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
+def _auth_candidates_for_post(post):
     auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
-    data = _try_get_json(comments_url, auth=auth)
+    return [auth, None] if auth else [None]
+
+
+def _candidate_remote_author_urls(post):
+    urls = []
+
+    explicit = (getattr(post, "remote_author_url", "") or "").strip()
+    if explicit:
+        urls.extend(_url_variants(explicit))
+
+    remote_id = str(post.remote_id or "").strip()
+    marker = "/posts/"
+    if marker in remote_id:
+        author_part = remote_id.split(marker)[0].rstrip("/")
+        if author_part:
+            urls.extend(_url_variants(author_part))
+
+    expanded = []
+    for url in urls:
+        base = url.rstrip("/")
+        expanded.extend(_url_variants(base))
+        if "/api/authors/" in base:
+            expanded.extend(_url_variants(base.replace("/api/authors/", "/authors/")))
+            expanded.extend(_url_variants(base.replace("/api/authors/", "/authors/api/authors/")))
+        elif "/authors/api/authors/" in base:
+            expanded.extend(_url_variants(base.replace("/authors/api/authors/", "/authors/")))
+            expanded.extend(_url_variants(base.replace("/authors/api/authors/", "/api/authors/")))
+        elif "/authors/" in base:
+            expanded.extend(_url_variants(base.replace("/authors/", "/api/authors/")))
+            expanded.extend(_url_variants(base.replace("/authors/", "/authors/api/authors/")))
+
+    deduped = []
+    seen = set()
+    for value in expanded:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
+def _candidate_remote_inbox_urls(post):
+    inboxes = []
+    for author_url in _candidate_remote_author_urls(post):
+        inboxes.extend(_url_variants(f"{author_url.rstrip('/')}/inbox"))
+
+    deduped = []
+    seen = set()
+    for value in inboxes:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+    
+def _fetch_remote_comments(post, viewer=None, include_like_state=True):
+    data = None
+    comments_url = ""
+
+    candidate_urls = _candidate_remote_comments_urls(post)
+    if not include_like_state:
+        candidate_urls = candidate_urls[:3]
+
+    for candidate_url in candidate_urls:
+        for auth in _auth_candidates_for_post(post):
+            data = _try_get_json(candidate_url, auth=auth)
+            if data:
+                comments_url = candidate_url
+                break
+        if data:
+            break
 
     if not data:
         return []
@@ -327,14 +585,14 @@ def _fetch_remote_comments(post, viewer=None):
             else:
                 comment_likes_url = f"{base_comments_url}/{comment_id}/likes/"
         liked_by_me = False
-        if viewer and comment_likes_url:
-            likes_data = _try_get_json(
-                comment_likes_url,
-                auth=(_auth_for_node(post.node_url.rstrip("/")) if post.node_url else None),
-            )
-            likes_items = likes_data.get("src", likes_data.get("items", [])) if isinstance(likes_data, dict) else likes_data
-            if isinstance(likes_items, list):
-                liked_by_me = any(_remote_like_matches_user(item, viewer) for item in likes_items if isinstance(item, dict))
+        if viewer and include_like_state and comment_likes_url:
+            auth_candidates = _auth_candidates_for_post(post) if include_like_state else _auth_candidates_for_post(post)[:1]
+            for auth in auth_candidates:
+                likes_data = _try_get_json(comment_likes_url, auth=auth)
+                likes_items = likes_data.get("src", likes_data.get("items", [])) if isinstance(likes_data, dict) else likes_data
+                if isinstance(likes_items, list):
+                    liked_by_me = any(_remote_like_matches_user(item, viewer) for item in likes_items if isinstance(item, dict))
+                    break
 
         normalized.append({
             "id": comment_id,
@@ -350,17 +608,15 @@ def _fetch_remote_comments(post, viewer=None):
 
 
 def _fetch_remote_likes(post):
-    likes_url = getattr(post, "remote_likes_url", "") or ""
+    data = None
+    for likes_url in _candidate_remote_likes_urls(post)[:3]:
+        for auth in _auth_candidates_for_post(post)[:1]:
+            data = _try_get_json(likes_url, auth=auth)
+            if data:
+                break
+        if data:
+            break
 
-    if not likes_url:
-        remote_id = str(post.remote_id).rstrip("/")
-        if "/api/authors/" in remote_id and "/posts/" in remote_id:
-            likes_url = remote_id.replace("/api/authors/", "/api/public/authors/") + "/likes/"
-        else:
-            likes_url = remote_id + "/likes/"
-
-    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
-    data = _try_get_json(likes_url, auth=auth)
     if not data:
         return []
 
@@ -382,52 +638,56 @@ def _fetch_remote_likes(post):
 
 
 def _send_remote_comment(user, post, text):
-    comments_url = getattr(post, "remote_comments_url", "") or ""
-
-    if not comments_url:
-        remote_id = str(post.remote_id).rstrip("/")
-        if "/api/authors/" in remote_id and "/posts/" in remote_id:
-            comments_url = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments/"
-        else:
-            comments_url = remote_id + "/comments/"
-
     payload = {
         "type": "comment",
         "id": f"{_site_url()}/federation/comments/{uuid.uuid4()}",
         "author": _local_author_payload(user),
         "comment": text,
         "contentType": "text/plain",
+        "object": str(post.remote_id or ""),
         "published": timezone.now().isoformat(),
     }
 
-    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
+    for comments_url in _candidate_remote_comments_urls(post):
+        for auth in _auth_candidates_for_post(post):
+            try:
+                resp = requests.post(
+                    comments_url,
+                    json=payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
 
-    try:
-        resp = requests.post(
-            comments_url,
-            json=payload,
-            auth=auth,
-            timeout=5,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
-        )
-        return resp.status_code in [200, 201, 202]
-    except Exception as e:
-        return False
+    # Some nodes only accept interaction activities via author inbox.
+    for inbox_url in _candidate_remote_inbox_urls(post):
+        for auth in _auth_candidates_for_post(post):
+            try:
+                resp = requests.post(
+                    inbox_url,
+                    json=payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
+    return False
 
 
 def _send_remote_like(user, post):
-    likes_url = getattr(post, "remote_likes_url", "") or ""
-
-    if not likes_url:
-        remote_id = str(post.remote_id).rstrip("/")
-        if "/api/authors/" in remote_id and "/posts/" in remote_id:
-            likes_url = remote_id.replace("/api/authors/", "/api/public/authors/") + "/likes/"
-        else:
-            likes_url = remote_id + "/likes/"
-
     stable_like_id = f"{_site_url()}/federation/likes/{user.id}/{post.id}"
 
     payload = {
@@ -438,44 +698,85 @@ def _send_remote_like(user, post):
         "published": timezone.now().isoformat(),
     }
 
-    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
+    like_urls = _candidate_remote_likes_urls(post)
+    auth_candidates = _auth_candidates_for_post(post)
+    already_liked = False
 
-    try:
-        existing = _try_get_json(likes_url, auth=auth)
-        existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
-        already_liked = isinstance(existing_items, list) and any(
-            isinstance(item, dict) and (
-                str(item.get("id") or "").strip() == stable_like_id
-                or _remote_like_matches_user(item, user)
-            )
-            for item in existing_items
-        )
-
+    for likes_url in like_urls:
+        for auth in auth_candidates:
+            existing = _try_get_json(likes_url, auth=auth)
+            existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
+            if isinstance(existing_items, list) and any(
+                isinstance(item, dict) and (
+                    str(item.get("id") or "").strip() == stable_like_id
+                    or _remote_like_matches_user(item, user)
+                )
+                for item in existing_items
+            ):
+                already_liked = True
+                break
         if already_liked:
-            resp = requests.delete(
-                likes_url,
-                json=payload,
-                auth=auth,
-                timeout=5,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
-        else:
-            resp = requests.post(
-                likes_url,
-                json=payload,
-                auth=auth,
-                timeout=5,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
-        return resp.status_code in [200, 201, 202, 204]
-    except Exception as e:
-        return False
+            break
+
+    if already_liked:
+        for likes_url in like_urls:
+            for auth in auth_candidates:
+                try:
+                    resp = requests.delete(
+                        likes_url,
+                        json=payload,
+                        auth=auth,
+                        timeout=5,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 202, 204, 404]:
+                        return True
+                except Exception:
+                    continue
+
+    for likes_url in like_urls:
+        for auth in auth_candidates:
+            try:
+                resp = requests.post(
+                    likes_url,
+                    json=payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
+
+    # Fallback for nodes that only accept Like/Unlike through inbox delivery.
+    inbox_payload = payload.copy()
+    inbox_payload["type"] = "unlike" if already_liked else "like"
+    for inbox_url in _candidate_remote_inbox_urls(post):
+        for auth in auth_candidates:
+            try:
+                resp = requests.post(
+                    inbox_url,
+                    json=inbox_payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
+
+    return False
 
 
 def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""):
@@ -510,43 +811,64 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
         "published": timezone.now().isoformat(),
     }
 
-    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
-    try:
-        existing = _try_get_json(likes_url, auth=auth)
-        existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
-        already_liked = isinstance(existing_items, list) and any(
-            isinstance(item, dict) and (
-                str(item.get("id") or "").strip() == stable_like_id
-                or _remote_like_matches_user(item, user)
-            )
-            for item in existing_items
-        )
+    like_urls = _url_variants(likes_url)
+    auth_candidates = _auth_candidates_for_post(post)
+    already_liked = False
 
+    for candidate_url in like_urls:
+        for auth in auth_candidates:
+            existing = _try_get_json(candidate_url, auth=auth)
+            existing_items = existing.get("src", existing.get("items", [])) if isinstance(existing, dict) else existing
+            if isinstance(existing_items, list) and any(
+                isinstance(item, dict) and (
+                    str(item.get("id") or "").strip() == stable_like_id
+                    or _remote_like_matches_user(item, user)
+                )
+                for item in existing_items
+            ):
+                already_liked = True
+                break
         if already_liked:
-            resp = requests.delete(
-                likes_url,
-                json=payload,
-                auth=auth,
-                timeout=5,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
-        else:
-            resp = requests.post(
-                likes_url,
-                json=payload,
-                auth=auth,
-                timeout=5,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
-        return resp.status_code in [200, 201, 202, 204]
-    except Exception:
-        return False
+            break
+
+    if already_liked:
+        for candidate_url in like_urls:
+            for auth in auth_candidates:
+                try:
+                    resp = requests.delete(
+                        candidate_url,
+                        json=payload,
+                        auth=auth,
+                        timeout=5,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 202, 204, 404]:
+                        return True
+                except Exception:
+                    continue
+
+    for candidate_url in like_urls:
+        for auth in auth_candidates:
+            try:
+                resp = requests.post(
+                    candidate_url,
+                    json=payload,
+                    auth=auth,
+                    timeout=5,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code in [200, 201, 202, 204, 409]:
+                    return True
+            except Exception:
+                continue
+
+    return False
 
 # ---------- Stream ----------
 
@@ -554,86 +876,97 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
 def stream(request):
     user = request.user
 
+    try:
+        _fetch_remote_public_posts()
+    except Exception:
+        pass
+
     following_ids = Follower.objects.filter(
         follower=user,
         status="accepted",
     ).values_list("following_id", flat=True)
 
-    local_posts = list(
-        Post.objects.filter(deleted=False, is_remote=False)
+    followed_remote_author_urls = set(
+        Author.objects.filter(id__in=following_ids, is_remote=True)
+        .exclude(remote_id__isnull=True)
+        .exclude(remote_id="")
+        .values_list("remote_id", flat=True)
+    )
+
+    all_posts = list(
+        Post.objects.filter(deleted=False)
         .filter(
-            Q(author=user)
-            | Q(visibility=Post.Visibility.PUBLIC)
+            Q(is_remote=False, author=user)
+            | Q(is_remote=False, visibility=Post.Visibility.PUBLIC)
             | Q(
+                is_remote=False,
                 author_id__in=following_ids,
+                visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
+            )
+            | Q(is_remote=True, visibility=Post.Visibility.PUBLIC)
+            | Q(
+                is_remote=True,
+                remote_author_url__in=followed_remote_author_urls,
                 visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
             )
         )
         .prefetch_related("comments__author", "comments__likes", "likes")
-        .order_by("-created")
+        .select_related("author")
+        .order_by("-published", "-created")
     )
 
-    remote_posts = _fetch_remote_public_posts()
-
-    # dedupe
-    combined_posts = local_posts + list(remote_posts)
-    seen = set()
-    all_posts = []
-    for p in combined_posts:
-        canonical_id = str(getattr(p, "remote_id", None) or p.id)
-        if canonical_id in seen:
-            continue
-        seen.add(canonical_id)
-        all_posts.append(p)
+    local_posts = [p for p in all_posts if not p.is_remote]
 
     post_liked_ids = set(
-        Like.objects.filter(author=user, post__in=[p for p in local_posts if not p.is_remote]).values_list("post_id", flat=True)
+        Like.objects.filter(
+            author=user,
+            post__in=local_posts
+        ).values_list("post_id", flat=True)
     )
     comment_liked_ids = set(
-        Like.objects.filter(author=user, comment__post__in=[p for p in local_posts if not p.is_remote]).values_list("comment_id", flat=True)
+        Like.objects.filter(
+            author=user,
+            comment__post__in=local_posts
+        ).values_list("comment_id", flat=True)
     )
 
     for p in all_posts:
+        if p.is_remote:
+            _sanitize_cached_remote_post(p)
+
         if p.content_type == Post.ContentType.MARKDOWN:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
         else:
             p.rendered = None
 
         if p.is_remote:
-            remote_comments = _fetch_remote_comments(p, viewer=user)
+            p.comment_list = []
+            remote_comments = _fetch_remote_comments(p, viewer=request.user, include_like_state=False)
             remote_likes = _fetch_remote_likes(p)
             p.remote_comment_list = remote_comments[:3]
             p.remote_like_list = remote_likes
-            p.comment_count = len(remote_comments)
-            p.like_count = len(remote_likes)
-            p.liked_by_me = any(_normalize_author_id(l.get("author_id")) in {
-                _normalize_author_id(f"{_site_url()}/authors/{user.id}"),
-                _normalize_author_id(f"{_site_url()}/authors/api/authors/{user.id}"),
-            } for l in remote_likes)
-            p.comment_list = []
+            p.comment_count = max(len(remote_comments), int(getattr(p, "remote_comment_count", 0) or 0))
+            p.like_count = max(len(remote_likes), int(getattr(p, "remote_like_count", 0) or 0))
+            p.liked_by_me = any(
+                _normalize_author_id(l.get("author_id")) in {
+                    _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
+                    _normalize_author_id(f"{_site_url()}/authors/api/authors/{request.user.id}"),
+                }
+                for l in remote_likes
+            )
         else:
             p.like_count = p.likes.count()
             p.comment_count = p.comments.count()
             p.liked_by_me = p.id in post_liked_ids
-            p.comment_list = list(_visible_comments_for_viewer(user, p)[:3])
-            p.remote_comment_list = []
-            p.remote_like_list = []
+            p.comment_list = list(_visible_comments_for_viewer(user, p))
             for c in p.comment_list:
-                c.like_count = c.likes.count()
                 c.liked_by_me = c.id in comment_liked_ids
-
-    all_posts = sorted(
-        all_posts,
-        key=lambda p: p.effective_published or p.created,
-        reverse=True,
-    )
 
     return render(
         request,
         "posts/stream.html",
         {
             "posts": all_posts,
-            # Keep legacy title for test and UI compatibility.
             "feed_title": "Public Stream",
         },
     )
@@ -644,6 +977,9 @@ def detail(request, post_id):
         post = get_object_or_404(Post, id=post_id)
     else:
         post = get_object_or_404(Post, id=post_id, deleted=False)
+
+    if post.is_remote:
+        _sanitize_cached_remote_post(post)
 
     if post.content_type == Post.ContentType.MARKDOWN:
         rendered = _render_markdown(post.content)
@@ -757,7 +1093,34 @@ def superuser_required(user):
 @user_passes_test(superuser_required)
 def author_posts(request, author_id):
     author = get_object_or_404(Author, id=author_id)
-    posts = Post.objects.filter(author=author)
+    if author.is_remote and author.remote_id:
+        try:
+            _fetch_remote_public_posts()
+        except Exception:
+            pass
+
+        rid = author.remote_id.rstrip("/")
+        rid_html = rid.replace("/authors/api/authors/", "/authors/").rstrip("/")
+        rid_api = rid.replace("/authors/", "/authors/api/authors/").rstrip("/")
+        remote_ids = [
+            rid,
+            rid + "/",
+            rid_html,
+            rid_html + "/",
+            rid_api,
+            rid_api + "/",
+        ]
+        posts = Post.objects.filter(
+            is_remote=True,
+            deleted=False,
+            remote_author_url__in=remote_ids,
+        ).order_by("-published", "-created")
+    else:
+        posts = Post.objects.filter(author=author)
+
+    for post in posts:
+        if post.is_remote:
+            _sanitize_cached_remote_post(post)
     return render(request, "posts/author_posts.html", {"author": author, "posts": posts})
 
 
@@ -834,7 +1197,174 @@ def like_remote_comment(request, post_id):
     next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or redirect("posts:detail", post_id=post.id).url
     return redirect(next_url)
 
+def _remote_api_author_base(author_obj):
+    remote_id = (author_obj.remote_id or "").strip().rstrip("/")
+    if not remote_id:
+        return ""
 
+    if "/api/authors/" in remote_id:
+        return remote_id
+
+    if "/authors/" in remote_id:
+        return remote_id.replace("/authors/", "/authors/api/authors/")
+
+    return remote_id
+
+
+def _remote_inbox_url_for_author(author_obj):
+    api_base = _remote_api_author_base(author_obj)
+    if not api_base:
+        return ""
+    return f"{api_base}/inbox/"
+
+
+def _post_to_activity_object(post):
+    return {
+        "type": "entry",
+        "id": post.remote_id,
+        "title": post.title,
+        "contentType": post.content_type,
+        "content": post.content,
+        "visibility": post.visibility,
+        "published": (post.published or post.created).isoformat(),
+        "author": _local_author_payload(post.author),
+    }
+
+
+def _send_post_to_remote_inbox(remote_author, post):
+    inbox_url = _remote_inbox_url_for_author(remote_author)
+    if not inbox_url:
+        return False
+
+    node_base = ""
+    remote_id = (remote_author.remote_id or "").strip()
+    if remote_id.startswith("http://") or remote_id.startswith("https://"):
+        parts = remote_id.split("/")
+        if len(parts) >= 3:
+            node_base = f"{parts[0]}//{parts[2]}"
+
+    auth = _auth_for_node(node_base.rstrip("/")) if node_base else None
+    payload = _post_to_activity_object(post)
+
+    try:
+        resp = requests.post(
+            inbox_url,
+            json=payload,
+            auth=auth,
+            timeout=5,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+        )
+        return resp.status_code in [200, 201, 202]
+    except Exception:
+        return False
+
+
+def _push_post_to_remote_recipients(post):
+    """
+    PUBLIC posts do not need inbox delivery because remote nodes can fetch them.
+    FRIENDS posts must be pushed to remote mutual friends.
+    UNLISTED posts can be pushed to remote accepted followers.
+    """
+    if post.visibility == Post.Visibility.PUBLIC:
+        return
+
+    following_ids = set(
+        Follower.objects.filter(
+            follower=post.author,
+            status="accepted",
+        ).values_list("following_id", flat=True)
+    )
+
+    follower_ids = set(
+        Follower.objects.filter(
+            following=post.author,
+            status="accepted",
+        ).values_list("follower_id", flat=True)
+    )
+
+    mutual_friend_ids = following_ids.intersection(follower_ids)
+
+    if post.visibility == Post.Visibility.FRIENDS:
+        recipients = Author.objects.filter(
+            id__in=mutual_friend_ids,
+            is_remote=True,
+        ).exclude(remote_id__isnull=True).exclude(remote_id="")
+    elif post.visibility == Post.Visibility.UNLISTED:
+        recipients = Author.objects.filter(
+            id__in=following_ids,
+            is_remote=True,
+        ).exclude(remote_id__isnull=True).exclude(remote_id="")
+    else:
+        recipients = Author.objects.none()
+
+    for remote_author in recipients:
+        _send_post_to_remote_inbox(remote_author, post)
+
+def _push_deleted_post_to_remote_recipients(post):
+    following_ids = set(
+        Follower.objects.filter(
+            follower=post.author,
+            status="accepted",
+        ).values_list("following_id", flat=True)
+    )
+
+    follower_ids = set(
+        Follower.objects.filter(
+            following=post.author,
+            status="accepted",
+        ).values_list("follower_id", flat=True)
+    )
+
+    mutual_friend_ids = following_ids.intersection(follower_ids)
+
+    recipients = Author.objects.filter(
+        Q(id__in=following_ids) | Q(id__in=mutual_friend_ids),
+        is_remote=True,
+    ).exclude(remote_id__isnull=True).exclude(remote_id="").distinct()
+
+    payload = {
+        "type": "entry",
+        "id": post.remote_id,
+        "title": post.title,
+        "contentType": post.content_type,
+        "content": post.content,
+        "visibility": post.visibility,
+        "deleted": True,
+        "published": (post.published or post.created).isoformat(),
+        "author": _local_author_payload(post.author),
+    }
+
+    for remote_author in recipients:
+        inbox_url = _remote_inbox_url_for_author(remote_author)
+        if not inbox_url:
+            continue
+
+        node_base = ""
+        remote_id = (remote_author.remote_id or "").strip()
+        if remote_id.startswith("http://") or remote_id.startswith("https://"):
+            parts = remote_id.split("/")
+            if len(parts) >= 3:
+                node_base = f"{parts[0]}//{parts[2]}"
+
+        auth = _auth_for_node(node_base.rstrip("/")) if node_base else None
+
+        try:
+            requests.post(
+                inbox_url,
+                json=payload,
+                auth=auth,
+                timeout=5,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+            )
+        except Exception:
+            pass      
+        
 # ---------- Create ----------
 
 @login_required
@@ -855,6 +1385,8 @@ def create(request):
             post.remote_id = f"{_site_url()}/api/authors/{request.user.id}/posts/{post.id}/"
             post.save(update_fields=["remote_id"])
 
+            _push_post_to_remote_recipients(post)
+            
             return redirect("posts:stream")
     else:
         form = PostForm()
@@ -880,6 +1412,12 @@ def edit(request, post_id):
             updated = form.save(commit=False)
             updated.updated = timezone.now()
             updated.save()
+
+            if not updated.remote_id:
+                updated.remote_id = f"{_site_url()}/api/authors/{request.user.id}/posts/{updated.id}/"
+                updated.save(update_fields=["remote_id"])
+
+            _push_post_to_remote_recipients(updated)
             return redirect("posts:stream")
     else:
         form = PostForm(instance=post)
@@ -901,7 +1439,11 @@ def delete(request, post_id):
 
     if request.method == "POST":
         post.deleted = True
+        post.updated = timezone.now()
         post.save(update_fields=["deleted", "updated"])
+
+        _push_deleted_post_to_remote_recipients(post)
+
         return redirect("posts:stream")
 
     return render(request, "posts/delete_confirm.html", {"post": post})
@@ -913,32 +1455,113 @@ def delete(request, post_id):
 def followers_feed(request):
     author = request.user
 
-    following = Follower.objects.filter(
-        follower=author,
-        status="accepted",
-    ).values_list("following", flat=True)
+    following_ids = set(
+        Follower.objects.filter(
+            follower=author,
+            status="accepted",
+        ).values_list("following", flat=True)
+    )
 
-    followers = Follower.objects.filter(
-        following=author,
-        status="accepted",
-    ).values_list("follower", flat=True)
+    follower_ids = set(
+        Follower.objects.filter(
+            following=author,
+            status="accepted",
+        ).values_list("follower", flat=True)
+    )
 
-    friends = Author.objects.filter(id__in=following).filter(id__in=followers)
+    friend_ids = following_ids.intersection(follower_ids)
 
-    posts = Post.objects.filter(
-        Q(author_id__in=following, visibility=Post.Visibility.UNLISTED, is_remote=False)
-        | Q(author__in=friends, is_remote=False)
-        | Q(author_id=author, is_remote=False)
-    ).filter(deleted=False).order_by("-created")
+    def _url_variants(url):
+        if not url:
+            return set()
+
+        u = str(url).strip().rstrip("/")
+        variants = {u, u + "/"}
+
+        if "/authors/api/authors/" in u:
+            html_ver = u.replace("/authors/api/authors/", "/authors/")
+            variants.add(html_ver)
+            variants.add(html_ver + "/")
+
+        if "/authors/" in u and "/authors/api/authors/" not in u:
+            api_ver = u.replace("/authors/", "/authors/api/authors/")
+            variants.add(api_ver)
+            variants.add(api_ver + "/")
+
+        return variants
+
+    remote_friend_urls = set()
+    remote_following_urls = set()
+
+    for remote_id in (
+        Author.objects.filter(id__in=friend_ids, is_remote=True)
+        .exclude(remote_id__isnull=True)
+        .exclude(remote_id="")
+        .values_list("remote_id", flat=True)
+    ):
+        remote_friend_urls.update(_url_variants(remote_id))
+
+    for remote_id in (
+        Author.objects.filter(id__in=following_ids, is_remote=True)
+        .exclude(remote_id__isnull=True)
+        .exclude(remote_id="")
+        .values_list("remote_id", flat=True)
+    ):
+        remote_following_urls.update(_url_variants(remote_id))
+
+    posts = Post.objects.filter(deleted=False).filter(
+        Q(author_id__in=following_ids, visibility=Post.Visibility.UNLISTED, is_remote=False)
+        | Q(author_id__in=friend_ids, visibility=Post.Visibility.FRIENDS, is_remote=False)
+        | Q(author_id=author.id, is_remote=False)
+        | Q(
+            is_remote=True,
+            remote_author_url__in=remote_following_urls,
+            visibility=Post.Visibility.UNLISTED,
+        )
+        | Q(
+            is_remote=True,
+            remote_author_url__in=remote_friend_urls,
+            visibility=Post.Visibility.FRIENDS,
+        )
+    ).order_by("-published", "-created")
+
+    local_posts = [p for p in posts if not p.is_remote]
+
+    post_liked_ids = set(
+        Like.objects.filter(author=author, post__in=local_posts).values_list("post_id", flat=True)
+    )
+    comment_liked_ids = set(
+        Like.objects.filter(author=author, comment__post__in=local_posts).values_list("comment_id", flat=True)
+    )
 
     for p in posts:
         if p.content_type == Post.ContentType.MARKDOWN:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
         else:
             p.rendered = None
-        p.like_count = p.likes.count()
-        p.comment_count = p.comments.count()
-        p.comment_list = list(_visible_comments_for_viewer(author, p)[:3])
+
+        if p.is_remote:
+            remote_comments = _fetch_remote_comments(p, viewer=author)
+            remote_likes = _fetch_remote_likes(p)
+            p.remote_comment_list = remote_comments[:3]
+            p.remote_like_list = remote_likes
+            p.comment_count = len(remote_comments)
+            p.like_count = len(remote_likes)
+            p.liked_by_me = any(
+                _normalize_author_id(l.get("author_id")) in {
+                    _normalize_author_id(f"{_site_url()}/authors/{author.id}"),
+                    _normalize_author_id(f"{_site_url()}/authors/api/authors/{author.id}"),
+                }
+                for l in remote_likes
+            )
+            p.comment_list = []
+        else:
+            p.like_count = p.likes.count()
+            p.comment_count = p.comments.count()
+            p.comment_list = list(_visible_comments_for_viewer(author, p)[:3])
+            p.liked_by_me = p.id in post_liked_ids
+            for c in p.comment_list:
+                c.liked_by_me = c.id in comment_liked_ids
 
     return render(
         request,

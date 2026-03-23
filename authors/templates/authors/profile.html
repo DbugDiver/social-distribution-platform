@@ -4,9 +4,16 @@
 <style>
     .profile-layout {
         display: grid;
-        grid-template-columns: 2fr 1fr; /* 2fr (two thirds) and 1fr (one third) */
+        grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
         gap: 32px;
         align-items: start;
+    }
+    .profile-layout > * {
+        min-width: 0;
+    }
+    .github-feed {
+        min-width: 0;
+        width: 100%;
     }
     .avatar-img {
         width: 120px;       /* Forces the exact width */
@@ -26,7 +33,7 @@
     }
 
     /* If the screen is smaller than a laptop, stack them vertically */
-    @media (max-width: 900px) {
+    @media (max-width: 1100px) {
         .profile-layout {
             grid-template-columns: 1fr;
         }
@@ -98,6 +105,7 @@
 
                                     <form method="POST" action="{% url 'send-follow-request' %}" style="display:inline;">
                                         {% csrf_token %}
+                                        <input type="hidden" name="next" value="{{ request.path }}">
                                         <input type="hidden" name="is_remote" value="{% if profile_user.is_remote %}True{% else %}False{% endif %}">
                                         {% if profile_user.is_remote and profile_user.remote_id %}
                                         <input type="hidden" name="author_id" value="{{ profile_user.remote_id }}">
@@ -175,16 +183,21 @@
                     style="
                         display: flex;
                         gap: 16px;
+                        justify-content: space-between;
+                        align-items: center;
                         font-size: 0.9rem;
                         color: var(--muted);
                         border-top: 1px solid #eee;
                         padding-top: 12px;
                     "
                 >
-                    <span>
-                        {% if post.liked_by_me %}❤️{% else %}🤍{% endif %} {{ post.like_count|default:0 }} Likes
-                    </span>
-                    <span>💬 {{ post.comment_count|default:0 }} Comments</span>
+                    <div style="display: flex; gap: 16px;">
+                        <span>
+                            {% if post.liked_by_me %}❤️{% else %}🤍{% endif %} {{ post.like_count|default:0 }} Likes
+                        </span>
+                        <span>💬 {{ post.comment_count|default:0 }} Comments</span>
+                    </div>
+                    <a href="{% url 'posts:detail' post.id %}" class="pill" style="text-decoration: none;">View details</a>
                 </footer>
             </article>
             {% empty %}

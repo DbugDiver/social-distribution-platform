@@ -17,6 +17,7 @@ body{
   background: linear-gradient(135deg,var(--bg1),var(--bg2));
   min-height:100vh;
   color: var(--text);
+  overflow-x: hidden;
 }
 
 :root{
@@ -63,18 +64,18 @@ body{
 }
 
 /* ===== Main layout ===== */
-.page{
-  padding: 22px 16px 70px;
-  display:flex;
-  justify-content:center;
+.page {
+  flex: 1;
+  overflow-x: hidden; 
 }
 
-.layout{
-  width: 100%;
-  max-width: 1100px;
-  display:grid;
-  grid-template-columns: 1fr 320px;
-  gap: 18px;
+/* Main layout container */
+.layout {
+  display: flex;
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
 }
 
 /* ===== Feed ===== */
@@ -175,6 +176,18 @@ body{
 
 .post-image-wrapper{
   margin-top: 10px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.post-image{
+  width: 100%;
+  height: 220px;
+  object-fit: contain;
+  background: #e5e7eb;
+  display: block;
 }
 
 /*
@@ -187,6 +200,7 @@ body{
 */
 .post-content img {
   max-width: 100%;
+  max-height: 220px;
   height: auto;
   border-radius: 12px;
   display: block;
@@ -199,13 +213,15 @@ body{
   height: fit-content;
 }
 
-.side-card{
-  background: rgba(255,255,255,0.88);
-  border: 1px solid rgba(255,255,255,0.55);
-  border-radius: 22px;
-  padding: 16px;
-  box-shadow: 0 10px 24px rgba(0,0,0,0.10);
-  margin-bottom: 14px;
+/* Side card styling */
+.side-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  position: sticky;
+  top: 1rem;
 }
 
 .side-title{
@@ -733,4 +749,96 @@ body{
     bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
+}
+
+/* ===== Stream Stabilization Overrides ===== */
+.header {
+  background: linear-gradient(180deg, rgba(12, 137, 165, 0.86), rgba(12, 137, 165, 0.74));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.24);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+.header-inner {
+  max-width: 1200px;
+  padding: 12px 20px;
+}
+
+.brand,
+.nav-link {
+  color: #f8fafc;
+}
+
+.page {
+  padding: 26px 16px 36px;
+}
+
+.layout {
+  width: 100%;
+  max-width: 1200px;
+  grid-template-columns: minmax(0, 780px) minmax(260px, 300px);
+  gap: 22px;
+  justify-content: center;
+  align-items: start;
+}
+
+.layout > * {
+  min-width: 0;
+}
+
+/* Feed section takes flexible width */
+.feed {
+  flex: 1;
+  min-width: 0; /* Important: prevents flex items from overflowing */
+  max-width: 700px;
+}
+
+/* Post cards */
+.post-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.post-content,
+.comment-text {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Sidebar has fixed width */
+.sidebar {
+  width: 280px;
+  flex-shrink: 0;
+}
+
+
+.post-image-wrapper {
+  border-radius: 18px;
+  background: transparent;
+}
+
+.post-image {
+  height: 300px;
+  object-fit: cover;
+  background: transparent;
+}
+
+/* Responsive: stack on small screens */
+@media (max-width: 900px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+  }
+
+  .feed,
+  .sidebar {
+    width: 100%;
+  }
 }

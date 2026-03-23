@@ -3,7 +3,7 @@
 <html>
 <head>
   <title>Stream</title>
-  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}?v=20260322e">
 </head>
 <body style="display: flex; flex-direction: column; min-height: 100vh; margin: 0;">
 
@@ -108,11 +108,11 @@
           {% endif %}
 
           {% if post.image or post.remote_image %}
-            <div class="post-image-wrapper" style="width:100%; overflow:hidden; border-radius:16px;">
+            <div class="post-image-wrapper">
               {% if post.is_remote and post.remote_image %}
-                <img src="{{ post.remote_image }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;" onerror="this.style.display='none';">
+                <img src="{{ post.remote_image }}" alt="Post image" class="post-image" onerror="this.style.display='none';">
               {% elif post.image %}
-                <img src="{{ post.image.url }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;">
+                <img src="{{ post.image.url }}" alt="Post image" class="post-image">
               {% endif %}
             </div>
           {% endif %}

@@ -1,101 +1,63 @@
 {% load static %}
 <!doctype html>
 <html>
-    <head>
-        <title>Welcome</title>
-        <link rel="stylesheet" href="{% static 'honeydew/style.css' %}" />
-    </head>
 
-    <body class="node-admin-page">
-        <main
-            style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                min-height: 80vh;
-            "
-        >
-            <section
-                style="
-                    text-align: center;
+<head>
+  <title>Welcome</title>
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
+</head>
+
+<body class="node-admin-page">
+
+  <main style="display: flex; justify-content: center; align-items: center; min-height: 80vh;">
+
+    <section style="text-align: center; 
                     border: 2px solid #4fc3f7; /* nice soft blue border */
-                    padding: 2rem;
-                    border-radius: 12px;
-                    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
-                    max-width: 400px;
+                    padding: 2rem; 
+                    border-radius: 12px; 
+                    box-shadow: 0 6px 15px rgba(0,0,0,0.1); 
+                    max-width: 400px; 
                     width: 100%;
-                    background-color: #fafafa;
-                "
-            >
-                <header>
-                    <h1 style="margin-bottom: 1.5rem; color: #333">
-                        Node Admin Panel
-                    </h1>
-                </header>
+                    background-color: #fafafa;"> <!-- subtle background for contrast -->
+      
+      <header>
+        <h1 style="margin-bottom: 1.5rem; color: #333;">Node Admin Panel</h1>
+      </header>
 
-                <nav>
-                    <ul style="list-style: none; padding: 0; margin: 2rem 0">
-                        <li style="margin-bottom: 1rem">
-                            <a
-                                href="{% url 'approvals' %}"
-                                style="
-                                    text-decoration: none;
-                                    color: #00796b;
-                                    font-weight: bold;
-                                "
-                            >
-                                Approve Users
-                            </a>
-                        </li>
-                        <li style="margin-bottom: 1rem">
-                            <a
-                                href="{% url 'manage-authors' %}"
-                                style="
-                                    text-decoration: none;
-                                    color: #00796b;
-                                    font-weight: bold;
-                                "
-                            >
-                                View Authors
-                            </a>
-                        </li>
-                        <li style="margin-bottom: 1rem">
-                            <a
-                                href="{% url 'add-author' %}"
-                                style="
-                                    text-decoration: none;
-                                    color: #00796b;
-                                    font-weight: bold;
-                                "
-                            >
-                                Add Author
-                            </a>
-                        </li>
-                        <li>
-                            <a
-                                href="{% url 'node-management' %}"
-                                style="
-                                    text-decoration: none;
-                                    color: #00796b;
-                                    font-weight: bold;
-                                "
-                            >
-                                Manage Nodes
-                            </a>
-                        </li>
-                    </ul>
-                </nav>
+      <nav>
+        <ul style="list-style: none; padding: 0; margin: 2rem 0;">
+          <li style="margin-bottom: 1rem;">
+            <a href="{% url 'approvals' %}" style="text-decoration: none; color: #00796b; font-weight: bold;">
+              Approve Users
+            </a>
+          </li>
+          <li style="margin-bottom: 1rem;">
+            <a href="{% url 'manage-authors' %}" style="text-decoration: none; color: #00796b; font-weight: bold;">
+              View Authors
+            </a>
+          </li>
+          <li style="margin-bottom: 1rem;">
+            <a href="{% url 'manage-nodes' %}" style="text-decoration: none; color: #00796b; font-weight: bold;">
+              Manage Nodes
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'add-author' %}" style="text-decoration: none; color: #00796b; font-weight: bold;">
+              Add Author
+            </a>
+          </li>
+        </ul>
+      </nav>
 
-                <nav class="admin-back-container" style="margin-top: 1.5rem">
-                    <a
-                        href="{% url 'posts:stream' %}"
-                        class="nav-link admin-back-stream"
-                        style="text-decoration: none; color: #555"
-                    >
-                        ← Back to Stream
-                    </a>
-                </nav>
-            </section>
-        </main>
-    </body>
+      <nav class="admin-back-container" style="margin-top: 1.5rem;">
+        <a href="{% url 'posts:stream' %}" class="nav-link admin-back-stream" style="text-decoration: none; color: #555;">
+          ← Back to Stream
+        </a>
+      </nav>
+
+    </section>
+
+  </main>
+
+</body>
 </html>
