@@ -1,0 +1,31 @@
+{% extends "authors/base.html" %}
+{% block content %}
+<div class="feed">
+    <div class="post-card">
+        <h2>Inbox</h2>
+        <a href="{% url 'follow-requests-list' %}" class="pill">View Follow Requests</a>
+    </div>
+    {% for notif in notifications %}
+        <div class="post-card">
+            <div class="post-header">
+                <div class="avatar"></div>
+                <div>
+                    <div class="author">
+                        <a href="{% url 'author-profile' notif.sender.id %}">{{ notif.sender.displayName|default:notif.sender.username }}</a>
+                    </div>
+                    <div class="timestamp">
+                        {{ notif.created_at|timesince }} ago
+                    </div>
+                </div>
+            </div>
+            <div class="post-content">
+                {{ notif.message }}
+            </div>
+        </div>
+    {% empty %}
+        <div class="post-card">
+            No notifications
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}

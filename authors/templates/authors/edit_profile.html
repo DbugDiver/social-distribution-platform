@@ -1,42 +1,62 @@
-{% extends "authors/base.html" %}
-{% block content %}
+{% extends "authors/base.html" %} {% block content %}
 
 <main class="page">
-  <div class="layout" style="grid-template-columns: 1fr;">
-    <section class="feed">
-      <h1 class="feed-title">Edit Profile</h1>
+    <article class="layout" style="grid-template-columns: 1fr">
+        <section class="feed">
+            <header>
+                <h1 class="feed-title">Edit Profile</h1>
+            </header>
 
-      <article class="post-card" style="max-width: 520px; margin: 0 auto;">
-        <form method="POST">
-          {% csrf_token %}
+            <article class="post-card" style="max-width: 520px; margin: 0 auto">
+                {% if error %}
+                <div style="background-color: #fee; color: #c33; padding: 12px; border-radius: 4px; margin-bottom: 16px; border-left: 4px solid #c33;">
+                    {{ error }}
+                </div>
+                {% endif %}
 
-          {% for field in form %}
-            <div class="form-row">
-              <label class="form-label" for="{{ field.id_for_label }}">
-                {{ field.label }}
-              </label>
+                {% if form.non_field_errors %}
+                <div style="background-color: #fee; color: #c33; padding: 12px; border-radius: 4px; margin-bottom: 16px; border-left: 4px solid #c33;">
+                    {% for error in form.non_field_errors %}
+                        <p style="margin: 0;">{{ error }}</p>
+                    {% endfor %}
+                </div>
+                {% endif %}
 
-              {{ field }}
+                <form method="POST" enctype="multipart/form-data">
+                    {% csrf_token %} {% for field in form %}
+                    <p class="form-row">
+                        <label
+                            class="form-label"
+                            for="{{ field.id_for_label }}"
+                        >
+                            {{ field.label }}
+                        </label>
 
-              {% for e in field.errors %}
-                <div class="field-error">{{ e }}</div>
-              {% endfor %}
-            </div>
-          {% endfor %}
+                        {{ field }} {% for e in field.errors %}
+                        <small class="field-error" style="display: block">
+                            {{ e }}
+                        </small>
+                        {% endfor %}
+                    </p>
+                    {% endfor %}
 
-          <div class="form-actions" style="justify-content: flex-end;">
-            <a href="{% url 'author-profile' pk=request.user.pk %}" class="pill">
-              Cancel
-            </a>
+                    <menu
+                        class="form-actions"
+                        style="justify-content: flex-end; padding: 0"
+                    >
+                        <a
+                            href="{% url 'author-profile' pk=request.user.pk %}"
+                            class="pill"
+                        >
+                            Cancel
+                        </a>
 
-            <button type="submit" class="pill">
-              Save Changes
-            </button>
-          </div>
-        </form>
-      </article>
-    </section>
-  </div>
+                        <button type="submit" class="pill">Save Changes</button>
+                    </menu>
+                </form>
+            </article>
+        </section>
+    </article>
 </main>
 
 {% endblock %}

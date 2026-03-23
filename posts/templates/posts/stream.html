@@ -3,89 +3,127 @@
 <html>
 <head>
   <title>Stream</title>
-  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}"> <!-- Load the CSS file for styling -->
+  <link rel="stylesheet" href="{% static 'honeydew/style.css' %}">
 </head>
-<body>
+<body style="display: flex; flex-direction: column; min-height: 100vh; margin: 0;">
 
 <header class="header">
-  <div class="header-inner">
-    <div class="brand">SocialDistribution</div>
-    <nav class="header-nav">
-      <a href="{% url 'posts:stream' %}" class="nav-link active">Public</a>
-      <a href="#" class="nav-link">Friends</a> <!-- Friends Tab on header is not implemented yet -->
+  <section class="header-inner">
+    <p class="brand">SocialDistribution</p>
+    <nav class="header-nav" aria-label="Primary navigation">
+      
+      <a href="{% url 'inbox' %}" class="nav-link">Inbox</a>
+
+      <form method="GET" action="{% url 'author-search' %}" class="search-form" role="search">
+        <input type="text" name="q" placeholder="Search users..." class="search-input" aria-label="Search users">
+        <button type="submit" class="icon-btn" aria-label="Search">🔍</button>
+      </form>
+
+      <a href="{% url 'posts:stream' %}" class="nav-link {% if feed_title == 'Public Stream' or feed_title == 'Federated Stream' %}active{% endif %}">Public</a>
+      <a href="{% url 'posts:friends-feed' %}" class="nav-link {% if feed_title == 'Friends Feed' %}active{% endif %}">Friends</a>
+
       {% if user.is_authenticated %}
-        <!-- Only show option to create a post to logged-in/authenticated users -->
         <a href="{% url 'posts:create' %}" class="nav-link">+ New Post</a>
 
-        <!-- Profile icon button (top-right) -->
+        {% if user.is_superuser %}
+          <a href="{% url 'node-admin-dashboard' %}" class="nav-link">Admin</a>
+        {% endif %}
+
         <a href="{% url 'author-profile' pk=request.user.pk %}"
           class="icon-btn profile-btn"
-          title="Profile">
+          title="Profile"
+          aria-label="Profile">
           👤
         </a>
       {% else %}
         <a href="{% url 'login' %}" class="nav-link">Login</a>
       {% endif %}
     </nav>
-  </div>
+  </section>
 </header>
 
-<main class="page">
-  <div class="layout">
-    <!-- Main feed when we see public stream for now (Will change to friends only view when implemented)-->
-    <section class="feed">
-      <h1 class="feed-title">Public Stream</h1>
+<main class="page" style="flex: 1;">
+  <section class="layout" aria-label="Stream layout">
+
+    <section class="feed" aria-label="Post feed">
+      <h1 class="feed-title">{{ feed_title }}</h1>
+
       {% for post in posts %}
         <article class="post-card">
-          <div class="post-header-row">
-            <div class="post-header">
-              <div class="avatar"></div>
-              <div>
-                <div class="author">{{ post.author.username }}</div> <!--Post Cards should show the author's username -->
-                <div class="timestamp">{{ post.created }}</div> <!--Post Cards should show the timestamp of when the post was created -->
-              </div>
-            </div>
+          <header class="post-header-row">
+            <address class="post-header">
 
-            <!-- Only show edit/delete buttons if the user is authenticated and is the author of the post -->
-            {% if user.is_authenticated and user.id == post.author_id %}
-              <div class="post-actions">
-                <a class="icon-btn" href="{% url 'posts:edit' post.id %}" title="Edit">✏️</a>
-                <a class="icon-btn danger"
-                  href="{% url 'posts:delete' post.id %}"
-                  title="Delete">
-                  🗑️
-                </a>
-              </div>
+              {% if not post.is_remote and post.author and post.author.profileImage %}
+                <img
+                  src="{{ post.author.profileImage.url }}"
+                  class="avatar"
+                  alt="{{ post.display_author.display_name }} profile picture"
+                  onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';"
+                >
+                <span class="avatar" style="font-size: 2rem; display:none; text-align:center; line-height:1; background:#e2e8f0; border-radius:50%;">
+                  🧛
+                </span>
+              {% elif post.is_remote and post.remote_author_image %}
+                <img
+                  src="{{ post.remote_author_image }}"
+                  class="avatar"
+                  alt="{{ post.display_author.display_name }} profile picture"
+                  onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';"
+                >
+                <span class="avatar" style="font-size: 2rem; display:none; text-align:center; line-height:1; background:#e2e8f0; border-radius:50%;">
+                  🧛
+                </span>
+              {% else %}
+                <span class="avatar" style="font-size: 2rem; display:inline-block; text-align:center; line-height:1; background:#e2e8f0; border-radius:50%;">
+                  🧛
+                </span>
+              {% endif %}
+
+              <strong class="author">
+                {{ post.display_author.display_name }}
+                {% if post.is_remote %}
+                  <span style="font-size: 0.85rem; color: #64748b;">(remote)</span>
+                {% endif %}
+              </strong>
+
+              <time class="timestamp" datetime="{{ post.effective_published|date:'c' }}">
+                {{ post.effective_published|default:post.created }}
+              </time>
+            </address>
+
+            {% if not post.is_remote and user.is_authenticated and user.id == post.author_id %}
+              <nav class="post-actions" aria-label="Post actions">
+                <a class="icon-btn" href="{% url 'posts:edit' post.id %}" aria-label="Edit">✏️</a>
+                <a class="icon-btn danger" href="{% url 'posts:delete' post.id %}" aria-label="Delete">🗑️</a>
+              </nav>
             {% endif %}
-          </div>
+          </header>
 
-          <!-- Only show the title if the post has one -->
           {% if post.title %}
             <h3 class="post-title">
               <a href="{% url 'posts:detail' post.id %}">
-                  {{ post.title }}
+                {{ post.title }}
               </a>
             </h3>
           {% endif %}
 
-          <!-- Only show the image if the post has one -->
-          {% if post.has_image %}
-            <div class="post-image-wrapper">
-              <img src="{{ post.image.url }}" class="post-image" alt="post image">
+          {% if post.image or post.remote_image %}
+            <div class="post-image-wrapper" style="width:100%; overflow:hidden; border-radius:16px;">
+              {% if post.is_remote and post.remote_image %}
+                <img src="{{ post.remote_image }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;" onerror="this.style.display='none';">
+              {% elif post.image %}
+                <img src="{{ post.image.url }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;">
+              {% endif %}
             </div>
           {% endif %}
 
-          <!-- Only show the content if the post has one -->
           {% if post.content %}
-            <div class="post-text-wrapper">
-              <!-- If the content is markdown, render it as HTML -->  
+            <section class="post-text-wrapper">
               {% if post.content_type == "text/markdown" %}
-                <div class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
-                    id="content-{{ post.id }}">
+                <section class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
+                        id="content-{{ post.id }}">
                   {{ post.rendered|safe }}
-                </div>
-
-              <!-- If the content is not markdown, just show it as plain text -->
+                </section>
               {% else %}
                 <p class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
                   id="content-{{ post.id }}">
@@ -93,69 +131,141 @@
                 </p>
               {% endif %}
 
-              <!-- Only show the read more button if the content has more than 20 words 
-              After js(below on this page) implementation clicking on ReadMore will show all conent -->
               {% if post.content|wordcount > 20 %}
                 <button class="read-more-btn" type="button"
                         onclick="toggleContent('{{ post.id }}', this)">
                   Read more
                 </button>
               {% endif %}
+            </section>
+          {% endif %}
 
-            </div>
+          <div class="post-meta-row">
+            <span>❤️ {{ post.like_count }} like{{ post.like_count|pluralize }}</span>
+            <span>💬 {{ post.comment_count }} comment{{ post.comment_count|pluralize }}</span>
+          </div>
+
+          <div class="post-interactions">
+            <form method="post" action="{% url 'posts:like-post' post.id %}" class="inline-form">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <button type="submit" class="pill">
+                {% if post.liked_by_me %}❤️ Liked{% else %}🤍 Like{% endif %}
+              </button>
+            </form>
+
+            <form method="post" action="{% url 'posts:add-comment' post.id %}" class="inline-form comment-inline-form">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <input type="text" name="comment" placeholder="Write a comment..." class="comment-input" maxlength="1000" required>
+              <button type="submit" class="pill">Comment</button>
+            </form>
+          </div>
+
+          {% if post.is_remote %}
+            {% if post.remote_comment_list %}
+              <div class="comment-list">
+                {% for comment in post.remote_comment_list %}
+                  <div class="comment-item">
+                    <div class="comment-text">
+                      <strong>{{ comment.author_name }}:</strong> {{ comment.comment }}
+                    </div>
+                    <form method="post" action="{% url 'posts:like-remote-comment' post.id %}" class="inline-form">
+                      {% csrf_token %}
+                      <input type="hidden" name="next" value="{{ request.path }}">
+                      <input type="hidden" name="remote_comment_id" value="{{ comment.id }}">
+                      <input type="hidden" name="remote_likes_url" value="{{ comment.likes_url|default:'' }}">
+                      <button type="submit" class="comment-like-btn" aria-label="Like remote comment">
+                        {% if comment.liked_by_me %}❤️{% else %}🤍{% endif %} {{ comment.like_count|default:0 }}
+                      </button>
+                    </form>
+                  </div>
+                {% endfor %}
+                {% if post.comment_count > 3 %}
+                  <a href="{% url 'posts:detail' post.id %}" class="view-more-comments">View all comments</a>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% else %}
+            {% if post.comment_list %}
+              <div class="comment-list">
+                {% for comment in post.comment_list %}
+                  <div class="comment-item">
+                    <div class="comment-text">
+                      <strong>
+                        {% if comment.author and comment.author.is_remote %}
+                          {{ comment.author.displayName|default:comment.author.username }}
+                        {% elif comment.display_author.display_name %}
+                          {{ comment.display_author.display_name }}
+                        {% elif comment.author %}
+                          {{ comment.author.username }}
+                        {% else %}
+                          Remote Author
+                        {% endif %}
+                      :</strong>
+                      {{ comment.comment }}
+                    </div>
+                    <form method="post" action="{% url 'posts:like-comment' post.id comment.id %}" class="inline-form">
+                      {% csrf_token %}
+                      <input type="hidden" name="next" value="{{ request.path }}">
+                      <button type="submit" class="comment-like-btn">
+                        {% if comment.liked_by_me %}❤️{% else %}🤍{% endif %} {{ comment.like_count }}
+                      </button>
+                    </form>
+                  </div>
+                {% endfor %}
+                {% if post.comment_count > 3 %}
+                  <a href="{% url 'posts:detail' post.id %}" class="view-more-comments">View all comments</a>
+                {% endif %}
+              </div>
+            {% endif %}
           {% endif %}
         </article>
-        {% empty %}
-          {% if user.is_authenticated %}
-            <p class="empty">There are no posts to show.</p> <!-- If logged in and there are no posts, Display this message -->
-          {% else %}
-            <p class="empty">You must log in to access posts.</p> <!-- If not logged in, Display this message -->
-          {% endif %}
-        {% endfor %}
+
+      {% empty %}
+        {% if user.is_authenticated %}
+          <p class="empty">There are no posts to show.</p>
+        {% else %}
+          <p class="empty">You must log in to access posts.</p>
+        {% endif %}
+      {% endfor %}
     </section>
 
-    <!-- Sidebar -->
     <aside class="sidebar">
-      <div class="side-card">
-        <h2 class="side-title">Friends Only</h2>
-        <p class="side-text">
-          (Coming next) Shows posts visible only to friends. <!-- Placeholder text for the friends feed, which is not implemented yet -->
-        </p>
+      <section class="side-card">
+        <h2 class="side-title">My Network</h2>
+        <nav class="side-actions" aria-label="Friends actions">
+          <a class="pill" href="{% url 'friends-list' %}">
+            View Friends & Following
+          </a>
+        </nav>
+      </section>
 
-        <div class="side-actions">
-          <a class="pill" href="#">View Friends Feed</a> <!-- Link to friends feed, which is not implemented yet -->
-        </div>
-      </div>
-
-      <div class="side-card">
-        <h2 class="side-title">Quick Actions</h2> <!-- Quick actions for creating a post or logging in -->
+      <section class="side-card">
+        <h2 class="side-title">Quick Actions</h2>
         {% if user.is_authenticated %}
-          <a class="pill" href="{% url 'posts:create' %}">+ Create Post</a> <!-- Link to create a new post, only visible to authenticated users -->
+          <a class="pill" href="{% url 'posts:create' %}">+ Create Post</a>
         {% else %}
-          <a class="pill" href="{% url 'login' %}">Login to Post</a> <!-- Link to login page, only visible to unauthenticated users -->
+          <a class="pill" href="{% url 'login' %}">Login to Post</a>
         {% endif %}
-      </div>
+      </section>
     </aside>
-  </div>
+  </section>
 </main>
 
-<!-- Footer -->
 <footer class="footer">
-  <div class="footer-inner">
-    <span>© {{ now|default:"2026" }} SocialDistribution</span>
-    <span class="dot">•</span>
-    <span>Built with Django</span>
-  </div>
+  <section class="footer-inner">
+    <p>© {{ now|default:"2026" }} SocialDistribution</p> • <p>Built with Django</p>
+  </section>
 </footer>
 
 <script>
-  // JavaScript function to toggle the full content of a post when the "Read more" button is clicked
   function toggleContent(id, btn) {
     const content = document.getElementById("content-" + id);
-    if (!content) return; 
-    const isExpanded = content.classList.toggle("expanded");  // Toggle the "expanded" class to show/hide the full content
-    content.classList.toggle("truncated", !isExpanded); // Toggle the "truncated" class to hide/show the truncated content 
-    btn.innerText = isExpanded ? "Show less" : "Read more"; // Change the button text based on whether the content is expanded or not
+    if (!content) return;
+    const isExpanded = content.classList.toggle("expanded");
+    content.classList.toggle("truncated", !isExpanded);
+    btn.innerText = isExpanded ? "Show less" : "Read more";
   }
 </script>
 </body>

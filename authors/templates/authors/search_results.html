@@ -1,0 +1,58 @@
+{% extends "authors/base.html" %}
+{% block content %}
+<div class="feed">
+    <div class="post-card">
+        <h2>Search Results</h2>
+        {% if query %}
+            Results for "<strong>{{ query }}</strong>"
+        {% endif %}
+    </div>
+
+    {% for author in results %}
+        <div class="post-card">
+            <div class="post-header">
+                {% if author.profileImage %}
+                    <img class="avatar" src="{{ author.profileImage }}" alt="{{ author.displayName }}">
+                {% else %}
+                    <div class="avatar"></div>
+                {% endif %}
+                <div>
+                    <div class="author">
+                        {% if author.profile_uuid %}
+                            <a href="{% url 'author-profile' author.profile_uuid %}">{{ author.displayName }}</a>
+                        {% elif author.url %}
+                            <a href="{{ author.url }}" target="_blank" rel="noopener noreferrer">{{ author.displayName }}</a>
+                        {% else %}
+                            {{ author.displayName }}
+                        {% endif %}
+                    </div>
+
+                    <div class="timestamp">
+                        @{{ author.username|default:author.displayName }}
+                    </div>
+
+                    <!-- ✅ ONE FOLLOW BUTTON -->
+                    <form method="POST" action="{% url 'send-follow-request' %}">
+                        {% csrf_token %}
+
+                        <input type="hidden" name="author_id" value="{{ author.id }}">
+                        <input type="hidden" name="is_remote" value="{{ author.is_remote }}">
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+
+                        {% if not author.is_remote %}
+                            <input type="hidden" name="uuid" value="{{ author.uuid }}">
+                        {% endif %}
+
+                        <button type="submit">Follow</button>
+                    </form>
+
+                </div>
+            </div>
+        </div>
+    {% empty %}
+        <div class="post-card">
+            No users found.
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}
