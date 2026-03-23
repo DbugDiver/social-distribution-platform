@@ -362,6 +362,17 @@ def _fetch_remote_public_posts():
 
     return cached
 
+
+def _active_remote_nodes():
+    return set(get_configured_nodes(exclude_local=True))
+
+
+def _is_post_from_active_remote_node(post, active_nodes=None):
+    if not getattr(post, "is_remote", False):
+        return True
+    nodes = active_nodes if active_nodes is not None else _active_remote_nodes()
+    return (getattr(post, "node_url", "") or "").rstrip("/") in nodes
+
 def _candidate_single_post_endpoints(node_url, remote_post_id):
     base = node_url.rstrip("/")
     rid = str(remote_post_id).strip("/")
@@ -875,6 +886,7 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
 @login_required
 def stream(request):
     user = request.user
+    allowed_remote_nodes = _active_remote_nodes()
 
     try:
         _fetch_remote_public_posts()
@@ -903,11 +915,12 @@ def stream(request):
                 author_id__in=following_ids,
                 visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
             )
-            | Q(is_remote=True, visibility=Post.Visibility.PUBLIC)
+            | Q(is_remote=True, visibility=Post.Visibility.PUBLIC, node_url__in=allowed_remote_nodes)
             | Q(
                 is_remote=True,
                 remote_author_url__in=followed_remote_author_urls,
                 visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
+                node_url__in=allowed_remote_nodes,
             )
         )
         .prefetch_related("comments__author", "comments__likes", "likes")
@@ -941,19 +954,11 @@ def stream(request):
 
         if p.is_remote:
             p.comment_list = []
-            remote_comments = _fetch_remote_comments(p, viewer=request.user, include_like_state=False)
-            remote_likes = _fetch_remote_likes(p)
-            p.remote_comment_list = remote_comments[:3]
-            p.remote_like_list = remote_likes
-            p.comment_count = max(len(remote_comments), int(getattr(p, "remote_comment_count", 0) or 0))
-            p.like_count = max(len(remote_likes), int(getattr(p, "remote_like_count", 0) or 0))
-            p.liked_by_me = any(
-                _normalize_author_id(l.get("author_id")) in {
-                    _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
-                    _normalize_author_id(f"{_site_url()}/authors/api/authors/{request.user.id}"),
-                }
-                for l in remote_likes
-            )
+            p.remote_comment_list = []
+            p.remote_like_list = []
+            p.comment_count = int(getattr(p, "remote_comment_count", 0) or 0)
+            p.like_count = int(getattr(p, "remote_like_count", 0) or 0)
+            p.liked_by_me = False
         else:
             p.like_count = p.likes.count()
             p.comment_count = p.comments.count()
@@ -979,6 +984,8 @@ def detail(request, post_id):
         post = get_object_or_404(Post, id=post_id, deleted=False)
 
     if post.is_remote:
+        if not _is_post_from_active_remote_node(post):
+            return HttpResponseForbidden("Remote node is not connected.")
         _sanitize_cached_remote_post(post)
 
     if post.content_type == Post.ContentType.MARKDOWN:
@@ -1067,6 +1074,8 @@ def add_comment(request, post_id):
         return redirect(next_url)
 
     if post.is_remote:
+        if not _is_post_from_active_remote_node(post):
+            return HttpResponseForbidden("Remote node is not connected.")
         ok = _send_remote_comment(request.user, post, text)
         if not ok:
             return HttpResponseForbidden("Could not send remote comment.")
@@ -1134,6 +1143,8 @@ def like_post(request, post_id):
         raise Http404()
 
     if post.is_remote:
+        if not _is_post_from_active_remote_node(post):
+            return HttpResponseForbidden("Remote node is not connected.")
         ok = _send_remote_like(request.user, post)
         if not ok:
             return HttpResponseForbidden("Could not send remote like.")
@@ -1186,6 +1197,9 @@ def like_remote_comment(request, post_id):
 
     if not post.is_remote:
         return HttpResponseForbidden("Not a remote post.")
+
+    if not _is_post_from_active_remote_node(post):
+        return HttpResponseForbidden("Remote node is not connected.")
 
     remote_comment_id = (request.POST.get("remote_comment_id") or "").strip()
     remote_likes_url = (request.POST.get("remote_likes_url") or "").strip()
@@ -1454,6 +1468,7 @@ def delete(request, post_id):
 @login_required
 def followers_feed(request):
     author = request.user
+    allowed_remote_nodes = _active_remote_nodes()
 
     following_ids = set(
         Follower.objects.filter(
@@ -1517,11 +1532,13 @@ def followers_feed(request):
             is_remote=True,
             remote_author_url__in=remote_following_urls,
             visibility=Post.Visibility.UNLISTED,
+            node_url__in=allowed_remote_nodes,
         )
         | Q(
             is_remote=True,
             remote_author_url__in=remote_friend_urls,
             visibility=Post.Visibility.FRIENDS,
+            node_url__in=allowed_remote_nodes,
         )
     ).order_by("-published", "-created")
 
@@ -1541,19 +1558,11 @@ def followers_feed(request):
             p.rendered = None
 
         if p.is_remote:
-            remote_comments = _fetch_remote_comments(p, viewer=author)
-            remote_likes = _fetch_remote_likes(p)
-            p.remote_comment_list = remote_comments[:3]
-            p.remote_like_list = remote_likes
-            p.comment_count = len(remote_comments)
-            p.like_count = len(remote_likes)
-            p.liked_by_me = any(
-                _normalize_author_id(l.get("author_id")) in {
-                    _normalize_author_id(f"{_site_url()}/authors/{author.id}"),
-                    _normalize_author_id(f"{_site_url()}/authors/api/authors/{author.id}"),
-                }
-                for l in remote_likes
-            )
+            p.remote_comment_list = []
+            p.remote_like_list = []
+            p.comment_count = int(getattr(p, "remote_comment_count", 0) or 0)
+            p.like_count = int(getattr(p, "remote_like_count", 0) or 0)
+            p.liked_by_me = False
             p.comment_list = []
         else:
             p.like_count = p.likes.count()

@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 
 from authors.models import Author, Follower
-from node.registry import get_node_auth
+from node.registry import get_node_auth, get_configured_nodes
 from .models import Comment, Like, Post
 
 """
@@ -550,6 +550,7 @@ def stream_api(request):
         follower=request.user,
         status="accepted",
     ).values_list("following_id", flat=True)
+    allowed_remote_nodes = set(get_configured_nodes(exclude_local=True))
 
     followed_remote_author_urls = set(
         Author.objects.filter(id__in=following_ids, is_remote=True)
@@ -568,11 +569,12 @@ def stream_api(request):
                 author_id__in=following_ids,
                 visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
             )
-            | Q(is_remote=True, visibility=Post.Visibility.PUBLIC)
+            | Q(is_remote=True, visibility=Post.Visibility.PUBLIC, node_url__in=allowed_remote_nodes)
             | Q(
                 is_remote=True,
                 remote_author_url__in=followed_remote_author_urls,
                 visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
+                node_url__in=allowed_remote_nodes,
             )
         )
         .select_related("author")
