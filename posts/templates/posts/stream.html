@@ -117,7 +117,7 @@
             </div>
           {% endif %}
 
-          {% if post.content and post.contentType|slice:":5" != "image" %}
+          {% if post.content and post.content_type|slice:":5" != "image" %}
             <section class="post-text-wrapper">
               {% if post.content_type == "text/markdown" %}
                 <section class="post-content {% if post.content|wordcount > 20 %}truncated{% endif %}"
