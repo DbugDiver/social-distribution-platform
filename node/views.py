@@ -133,6 +133,8 @@ def manage_nodes(request):
                 node.save()
                 messages.success(request, "Remote node saved.")
                 return redirect("manage-nodes")
+        else:
+            messages.error(request, f"Could not save node: {form.errors.as_text()}")
     else:
         form = NodeForm()
 
