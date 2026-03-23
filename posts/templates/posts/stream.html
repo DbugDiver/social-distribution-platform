@@ -107,7 +107,7 @@
             </h3>
           {% endif %}
 
-         {# IMAGE FIRST #}
+          {# IMAGE FIRST #}
           {% if post.image or post.remote_image %}
             <div class="post-image-wrapper" style="width:100%; overflow:hidden; border-radius:16px;">
               <img
@@ -136,13 +136,12 @@
             </section>
           {% endif %}
 
-              {% if post.content|wordcount > 20 %}
-                <button class="read-more-btn" type="button"
-                        onclick="toggleContent('{{ post.id }}', this)">
-                  Read more
-                </button>
-              {% endif %}
-            </section>
+          {# READ MORE BUTTON #}
+          {% if post.content|wordcount > 20 %}
+            <button class="read-more-btn" type="button"
+                    onclick="toggleContent('{{ post.id }}', this)">
+              Read more
+            </button>
           {% endif %}
 
           <div class="post-meta-row">
