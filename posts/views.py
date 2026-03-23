@@ -165,16 +165,25 @@ def _normalize_remote_post(raw, node_url):
     remote_post_id = raw.get("id") or raw.get("remote_id") or raw.get("url")
     comments_obj = raw.get("comments") if isinstance(raw.get("comments"), dict) else {}
     likes_obj = raw.get("likes") if isinstance(raw.get("likes"), dict) else {}
-    
+
+    # Base fields
+    content_type = raw.get("contentType") or raw.get("content_type") or Post.ContentType.PLAIN
+    content = raw.get("content") or ""
+
+    # Image URL from remote JSON
     image_url = (raw.get("image") or "").strip()
     if image_url.startswith("/") and node_url:
         image_url = f"{node_url.rstrip('/')}{image_url}"
 
+    # If remote post is an image, build a data URL
+    if content_type.startswith("image/") and content:
+        image_url = f"data:{content_type},{content}"
+
     return {
         "remote_id": str(remote_post_id) if remote_post_id else "",
         "title": raw.get("title") or "",
-        "content": raw.get("content") or "",
-        "content_type": raw.get("contentType") or raw.get("content_type") or Post.ContentType.PLAIN,
+        "content": content,               
+        "content_type": content_type,      
         "visibility": raw.get("visibility") or Post.Visibility.PUBLIC,
         "published": raw.get("published") or raw.get("created") or raw.get("updated"),
         "node_url": node_url.rstrip("/"),
@@ -182,12 +191,13 @@ def _normalize_remote_post(raw, node_url):
         "remote_author_name": author.get("displayName") or author.get("username") or "Remote Author",
         "remote_author_host": author.get("host") or node_url.rstrip("/"),
         "remote_author_image": author.get("profileImage") or "",
-        "remote_image": image_url,
+        "remote_image": image_url,        
         "remote_comments_url": comments_obj.get("id") or "",
         "remote_likes_url": likes_obj.get("id") or "",
         "remote_comment_count": comments_obj.get("count", 0),
         "remote_like_count": likes_obj.get("count", 0),
     }
+
 
 def _upsert_remote_post_cache(data):
     remote_id = data["remote_id"]
