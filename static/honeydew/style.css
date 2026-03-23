@@ -771,11 +771,16 @@ body{
 }
 
 .layout {
+  width: 100%;
   max-width: 1200px;
   grid-template-columns: minmax(0, 780px) minmax(260px, 300px);
   gap: 22px;
   justify-content: center;
   align-items: start;
+}
+
+.layout > * {
+  min-width: 0;
 }
 
 .feed {
@@ -796,6 +801,7 @@ body{
 .sidebar {
   width: 300px;
   max-width: 100%;
+  min-width: 0;
   align-self: start;
   top: 92px;
 }

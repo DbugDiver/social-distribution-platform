@@ -4,9 +4,16 @@
 <style>
     .profile-layout {
         display: grid;
-        grid-template-columns: 2fr 1fr; /* 2fr (two thirds) and 1fr (one third) */
+        grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
         gap: 32px;
         align-items: start;
+    }
+    .profile-layout > * {
+        min-width: 0;
+    }
+    .github-feed {
+        min-width: 0;
+        width: 100%;
     }
     .avatar-img {
         width: 120px;       /* Forces the exact width */
@@ -26,7 +33,7 @@
     }
 
     /* If the screen is smaller than a laptop, stack them vertically */
-    @media (max-width: 900px) {
+    @media (max-width: 1100px) {
         .profile-layout {
             grid-template-columns: 1fr;
         }

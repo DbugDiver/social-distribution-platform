@@ -39,24 +39,14 @@ def author_profile(request, pk):
     # For remote proxy rows, hydrate details from the canonical remote author endpoint.
     if author.is_remote and author.remote_id:
         node_url = _host_from_author_url(author.remote_id)
-        
-        # Try primary endpoint first
-        remote_doc = _try_get_json(author.remote_id, auth=_auth_for_node(node_url))
-        
-        # If primary fails, try alternative endpoints (some servers use different paths)
-        if not remote_doc and node_url:
-            remote_id_clean = (author.remote_id or "").rstrip("/")
-            # Try without /api/authors/ wrapper
-            if "/api/authors/" in remote_id_clean:
-                alt_endpoint = remote_id_clean.replace("/api/authors/", "/authors/")
-                remote_doc = _try_get_json(alt_endpoint, auth=_auth_for_node(node_url))
-        
+        remote_doc = _fetch_remote_author_doc(author.remote_id)
+
         if isinstance(remote_doc, dict):
-            remote_display_name = (remote_doc.get("displayName") or "").strip()
-            remote_username = (remote_doc.get("username") or "").strip()
-            remote_github = (remote_doc.get("github") or "").strip()
-            remote_bio = (remote_doc.get("bio") or "").strip()
-            remote_profile_image_url = (remote_doc.get("profileImage") or "").strip()
+            remote_display_name = _first_non_empty(remote_doc, ["displayName", "username", "name"])
+            remote_username = _first_non_empty(remote_doc, ["username", "displayName", "name"])
+            remote_github = _first_non_empty(remote_doc, ["github", "githubUrl"])
+            remote_bio = _first_non_empty(remote_doc, ["bio", "description", "about"])
+            remote_profile_image_url = _first_non_empty(remote_doc, ["profileImage", "profile_image", "avatar"])
 
             if remote_display_name:
                 author.displayName = remote_display_name
@@ -68,6 +58,19 @@ def author_profile(request, pk):
                 author.bio = remote_bio
             if remote_profile_image_url.startswith("/") and node_url:
                 remote_profile_image_url = f"{node_url}{remote_profile_image_url}"
+
+            # Persist hydrated fields so profile metadata still appears if remote node is temporarily unavailable.
+            changed_fields = []
+            if remote_display_name and author.displayName == remote_display_name:
+                changed_fields.append("displayName")
+            if remote_username and author.username == remote_username:
+                changed_fields.append("username")
+            if remote_github and author.github == remote_github:
+                changed_fields.append("github")
+            if remote_bio and author.bio == remote_bio:
+                changed_fields.append("bio")
+            if changed_fields:
+                author.save(update_fields=changed_fields)
 
     is_following = False
     follow_status = None
@@ -686,6 +689,73 @@ def _extract_author_items(payload):
     return []
 
 
+def _first_non_empty(payload, keys):
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str):
+            value = value.strip()
+            if value:
+                return value
+    return ""
+
+
+def _candidate_remote_author_detail_urls(author_url):
+    raw = (author_url or "").strip().rstrip("/")
+    if not raw:
+        return []
+
+    candidates = [raw, f"{raw}/"]
+
+    if "/authors/api/authors/" in raw:
+        html_variant = raw.replace("/authors/api/authors/", "/authors/")
+        candidates.extend([html_variant, f"{html_variant}/"])
+
+    if "/authors/" in raw and "/authors/api/authors/" not in raw:
+        api_variant = raw.replace("/authors/", "/authors/api/authors/")
+        candidates.extend([api_variant, f"{api_variant}/"])
+
+    if "/api/authors/" in raw:
+        alt_variant = raw.replace("/api/authors/", "/authors/")
+        candidates.extend([alt_variant, f"{alt_variant}/"])
+
+    deduped = []
+    seen = set()
+    for url in candidates:
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        deduped.append(url)
+    return deduped
+
+
+def _fetch_remote_author_doc(author_url):
+    node_url = _host_from_author_url(author_url)
+    auth = _auth_for_node(node_url)
+
+    for endpoint in _candidate_remote_author_detail_urls(author_url):
+        for candidate_auth in ([auth, None] if auth else [None]):
+            payload = _try_get_json(endpoint, auth=candidate_auth)
+            if not isinstance(payload, dict):
+                continue
+
+            if isinstance(payload.get("author"), dict):
+                return payload.get("author")
+
+            if isinstance(payload.get("items"), list):
+                items = payload.get("items")
+                if items and isinstance(items[0], dict):
+                    return items[0]
+
+            if isinstance(payload.get("src"), list):
+                items = payload.get("src")
+                if items and isinstance(items[0], dict):
+                    return items[0]
+
+            return payload
+
+    return None
+
+
 def _candidate_remote_author_search_urls(node, query):
     q = quote(query)
     base = node.rstrip("/")
@@ -748,8 +818,7 @@ def _upsert_remote_author(author_payload):
 
     # Fallback: resolve from remote author endpoint when payload omits names.
     if not display_name:
-        node_url = _host_from_author_url(remote_id)
-        remote_doc = _try_get_json(remote_id, auth=_auth_for_node(node_url))
+        remote_doc = _fetch_remote_author_doc(remote_id)
         if isinstance(remote_doc, dict):
             display_name = (remote_doc.get("displayName") or remote_doc.get("username") or "").strip()
 
@@ -792,7 +861,7 @@ def _refresh_remote_author(author):
         return
 
     node_url = _host_from_author_url(author.remote_id)
-    remote_doc = _try_get_json(author.remote_id, auth=_auth_for_node(node_url))
+    remote_doc = _fetch_remote_author_doc(author.remote_id)
     if not isinstance(remote_doc, dict):
         return
 
