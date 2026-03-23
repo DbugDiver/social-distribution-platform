@@ -270,7 +270,10 @@ def post_detail_api(request, author_id, post_id):
     if post.is_remote:
         image_url = post.remote_image or ""
     else:
-        image_url = request.build_absolute_uri(post.image.url) if post.image else ""
+        if post.image and post.image.name:
+            image_url = request.build_absolute_uri(post.image.url)
+        else:
+            image_url = ""
 
     payload = {
         "type": "entry",
@@ -591,11 +594,13 @@ def stream_api(request):
                 pass
 
         # Remote image → leave as-is (remote nodes already encoded it)
-        image_url = (
-            post.remote_image
-            if post.is_remote
-            else (req.build_absolute_uri(post.image.url) if post.image else "")
-        )
+        if post.is_remote:
+            image_url = post.remote_image or ""
+        else:
+            if post.image and post.image.name:
+                image_url = req.build_absolute_uri(post.image.url)
+            else:
+                image_url = ""
 
         return {
             "type": "entry",
@@ -771,15 +776,17 @@ def public_posts_api(request):
         if post.is_remote:
             image_url = post.remote_image or ""
         else:
-            image_url = request.build_absolute_uri(post.image.url) if post.image else ""
+            if post.image and post.image.name:
+                image_url = request.build_absolute_uri(post.image.url)
+            else:
+                image_url = ""
 
-        if post.image and content_type.startswith("image/"):
+        if post.image and post.image.name and content_type.startswith("image/"):
             try:
                 with post.image.open("rb") as f:
                     b64 = base64.b64encode(f.read()).decode("utf-8")
                 content = b64
             except Exception:
-                # Fallback: leave content empty if something goes wrong
                 content = ""
 
         items.append({
