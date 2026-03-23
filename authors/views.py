@@ -1,6 +1,6 @@
 from datetime import datetime
 import uuid
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 from socket import timeout
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
@@ -655,6 +655,45 @@ def _try_get_json(url, auth=None, timeout=5):
     return None
 
 
+def _extract_author_items(payload):
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        if isinstance(payload.get("items"), list):
+            return payload.get("items")
+        if isinstance(payload.get("src"), list):
+            return payload.get("src")
+    return []
+
+
+def _candidate_remote_author_search_urls(node, query):
+    q = quote(query)
+    base = node.rstrip("/")
+    return [
+        f"{base}/authors/api/authors/?search={q}",
+        f"{base}/authors/api/authors/?page=1&size=200&_federated=1",
+        f"{base}/authors/api/authors/",
+    ]
+
+
+def _normalize_remote_author_card(author, node):
+    author_id = (author.get("id") or author.get("url") or "").strip()
+    host = (author.get("host") or node).rstrip("/")
+    profile_image = (author.get("profileImage") or "").strip()
+    if profile_image.startswith("/"):
+        profile_image = f"{host}{profile_image}"
+
+    return {
+        "id": author_id,
+        "displayName": (author.get("displayName") or author.get("username") or "Remote Author").strip(),
+        "username": (author.get("username") or "").strip(),
+        "host": host,
+        "profileImage": profile_image,
+        "url": (author.get("url") or author_id).strip(),
+        "is_remote": True,
+    }
+
+
 def _host_from_author_url(author_url):
     try:
         parsed = urlparse(author_url)
@@ -983,27 +1022,34 @@ def author_search(request):
 
         # REMOTE
         for node in get_configured_nodes(exclude_local=True):
-            url = f"{node}/authors/api/authors/?search={query}"
-
-            data = _try_get_json(url, auth=_auth_for_node(node))
-            if not data:
-                continue
-
-            items = data.get("items", [])  #
+            items = []
+            for url in _candidate_remote_author_search_urls(node, query):
+                data = _try_get_json(url, auth=_auth_for_node(node))
+                if not data:
+                    # Some peers expose public author listing without basic auth.
+                    data = _try_get_json(url, auth=None)
+                extracted = _extract_author_items(data)
+                if extracted:
+                    items = extracted
+                    break
 
             for author in items:
-                author_id = (author.get("id") or "").strip()
+                normalized = _normalize_remote_author_card(author, node)
+                author_id = normalized["id"]
                 if not author_id or author_id in seen_ids:
                     continue
 
-                # Ensure search cards can link to a local profile route for remote authors.
-                remote_proxy = _upsert_remote_author(author)
-                if remote_proxy:
-                    author["profile_uuid"] = str(remote_proxy.id)
+                haystack = f"{normalized['displayName']} {normalized['username']}".lower()
+                if query.lower() not in haystack:
+                    continue
 
-                author["is_remote"] = True
+                # Ensure search cards can link to a local profile route for remote authors.
+                remote_proxy = _upsert_remote_author(normalized)
+                if remote_proxy:
+                    normalized["profile_uuid"] = str(remote_proxy.id)
+
                 seen_ids.add(author_id)
-                results.append(author)
+                results.append(normalized)
 
     context = {
         "query": query,

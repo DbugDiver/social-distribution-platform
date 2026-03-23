@@ -3,6 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import user_passes_test
 from django.shortcuts import render, redirect, get_object_or_404
 import requests
+from urllib.parse import quote
 
 from authors.models import Author
 from .forms import NodeForm
@@ -130,9 +131,42 @@ def manage_nodes(request):
             if node.host == settings.SITE_URL.rstrip("/"):
                 messages.error(request, "Cannot add this server as a remote node.")
             else:
-                node.save()
-                messages.success(request, "Remote node saved.")
-                return redirect("manage-nodes")
+                probe_urls = [
+                    f"{node.host}/authors/api/authors/?page=1&size=1&_federated=1",
+                    f"{node.host}/authors/api/authors/?search={quote('a')}",
+                    f"{node.host}/authors/api/authors/",
+                ]
+                is_reachable = False
+                last_status = None
+                for probe in probe_urls:
+                    try:
+                        resp = requests.get(
+                            probe,
+                            auth=(node.auth_username, node.auth_password),
+                            timeout=5,
+                            headers={"Accept": "application/json"},
+                        )
+                        last_status = resp.status_code
+                        if resp.status_code in [200, 401, 403]:
+                            is_reachable = True
+                            break
+                    except Exception:
+                        continue
+
+                if not is_reachable:
+                    messages.error(
+                        request,
+                        "Could not reach remote host. Check host URL and that the peer app is online.",
+                    )
+                elif last_status in [401, 403]:
+                    messages.error(
+                        request,
+                        "Remote host rejected credentials (401/403). Check auth username/password for that node.",
+                    )
+                else:
+                    node.save()
+                    messages.success(request, "Remote node saved.")
+                    return redirect("manage-nodes")
         else:
             messages.error(request, f"Could not save node: {form.errors.as_text()}")
     else:

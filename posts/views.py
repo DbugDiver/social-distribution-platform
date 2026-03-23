@@ -194,6 +194,10 @@ def _normalize_remote_post(raw, node_url):
     if image_url.startswith("/") and node_url:
         image_url = f"{node_url.rstrip('/')}{image_url}"
 
+    remote_author_image = (author.get("profileImage") or "").strip()
+    if remote_author_image.startswith("/") and node_url:
+        remote_author_image = f"{node_url.rstrip('/')}{remote_author_image}"
+
     return {
         "remote_id": str(remote_post_id) if remote_post_id else "",
         "title": raw.get("title") or "",
@@ -205,7 +209,7 @@ def _normalize_remote_post(raw, node_url):
         "remote_author_url": author.get("id") or author.get("url") or "",
         "remote_author_name": author.get("displayName") or author.get("username") or "Remote Author",
         "remote_author_host": author.get("host") or node_url.rstrip("/"),
-        "remote_author_image": author.get("profileImage") or "",
+        "remote_author_image": remote_author_image,
         "remote_image": image_url,
         "remote_comments_url": comments_obj.get("id") or "",
         "remote_likes_url": likes_obj.get("id") or "",
