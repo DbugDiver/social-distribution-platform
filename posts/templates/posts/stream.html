@@ -107,31 +107,16 @@
             </h3>
           {% endif %}
 
-          {# IMAGE FIRST #}
           {% if post.image or post.remote_image %}
             <div class="post-image-wrapper" style="width:100%; overflow:hidden; border-radius:16px;">
-
-              {% if post.image and post.image.name %}
-                <img
-                  src="{{ post.image.url }}"
-                  alt="Post image"
-                  style="width:100%; height:320px; object-fit:cover; display:block;"
-                  onerror="this.style.display='none';"
-                >
-              {% else %}
-                <img
-                  src="{{ post.remote_image }}"
-                  alt="Post image"
-                  style="width:100%; height:320px; object-fit:cover; display:block;"
-                  onerror="this.style.display='none';"
-                >
+              {% if post.is_remote and post.remote_image %}
+                <img src="{{ post.remote_image }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;" onerror="this.style.display='none';">
+              {% elif post.image %}
+                <img src="{{ post.image.url }}" alt="Post image" style="width:100%; height:320px; object-fit:cover; display:block;">
               {% endif %}
-
             </div>
           {% endif %}
 
-
-          {# TEXT CONTENT #}
           {% if post.content %}
             <section class="post-text-wrapper">
               {% if post.content_type == "text/markdown" %}
@@ -145,15 +130,14 @@
                   {{ post.content }}
                 </p>
               {% endif %}
-            </section>
-          {% endif %}
 
-          {# READ MORE BUTTON #}
-          {% if post.content|wordcount > 20 %}
-            <button class="read-more-btn" type="button"
-                    onclick="toggleContent('{{ post.id }}', this)">
-              Read more
-            </button>
+              {% if post.content|wordcount > 20 %}
+                <button class="read-more-btn" type="button"
+                        onclick="toggleContent('{{ post.id }}', this)">
+                  Read more
+                </button>
+              {% endif %}
+            </section>
           {% endif %}
 
           <div class="post-meta-row">

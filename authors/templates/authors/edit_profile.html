@@ -23,58 +23,34 @@
                 {% endif %}
 
                 <form method="POST" enctype="multipart/form-data">
-                    {% csrf_token %}
+                    {% csrf_token %} {% for field in form %}
+                    <p class="form-row">
+                        <label
+                            class="form-label"
+                            for="{{ field.id_for_label }}"
+                        >
+                            {{ field.label }}
+                        </label>
 
-                    {% for field in form %}
-                        {% if field.name == 'profileImage' %}
-                            <p class="form-row" style="margin-bottom: 20px;">
-                                <label class="form-label" for="{{ field.id_for_label }}">
-                                    {{ field.label }}
-                                </label>
-
-                                {% if request.user.profileImage %}
-                                    <div style="display: flex; align-items: center; gap: 15px; margin-top: 8px;">
-                                        <img src="{{ request.user.profileImage.url }}" class="avatar-img" style="width: 60px; height: 60px; object-fit: cover; border-radius: 50%;" alt="Current Avatar">
-
-                                        <label style="color: #dc3545; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 5px;">
-                                            <input type="checkbox" name="clear_image" value="true">
-                                            Remove current picture
-                                        </label>
-                                    </div>
-                                    <div style="margin-top: 10px;">
-                                        <small style="color: var(--muted); display: block; margin-bottom: 4px;">Or upload a new one to replace it:</small>
-                                        <input type="file" name="profileImage" accept="image/*" class="form-control">
-                                    </div>
-                                {% else %}
-                                    <input type="file" name="profileImage" accept="image/*" class="form-control">
-                                {% endif %}
-
-                                {% for e in field.errors %}
-                                    <small class="field-error" style="display: block">{{ e }}</small>
-                                {% endfor %}
-                            </p>
-
-                        {% else %}
-                            <p class="form-row">
-                                <label class="form-label" for="{{ field.id_for_label }}">
-                                    {{ field.label }}
-                                </label>
-
-                                {{ field }}
-
-                                {% for e in field.errors %}
-                                    <small class="field-error" style="display: block">
-                                        {{ e }}
-                                    </small>
-                                {% endfor %}
-                            </p>
-                        {% endif %}
+                        {{ field }} {% for e in field.errors %}
+                        <small class="field-error" style="display: block">
+                            {{ e }}
+                        </small>
+                        {% endfor %}
+                    </p>
                     {% endfor %}
 
-                    <menu class="form-actions" style="justify-content: flex-end; padding: 0">
-                        <a href="{% url 'author-profile' pk=request.user.pk %}" class="pill">
+                    <menu
+                        class="form-actions"
+                        style="justify-content: flex-end; padding: 0"
+                    >
+                        <a
+                            href="{% url 'author-profile' pk=request.user.pk %}"
+                            class="pill"
+                        >
                             Cancel
                         </a>
+
                         <button type="submit" class="pill">Save Changes</button>
                     </menu>
                 </form>

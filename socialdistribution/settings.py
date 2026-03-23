@@ -6,12 +6,10 @@ import json
 import os
 from pathlib import Path
 from urllib.parse import urlparse
-
 import dj_database_url
 
 try:
     import cloudinary_storage  # noqa: F401
-
     CLOUDINARY_INSTALLED = True
 except ImportError:
     CLOUDINARY_INSTALLED = False
@@ -19,33 +17,28 @@ except ImportError:
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Heroku/prod note: DEBUG must be a boolean. String values (e.g. "False") are truthy.
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "False").strip().lower() in ("1", "true", "yes", "on")
 
 SECRET_KEY = os.environ.get(
-    "SECRET_KEY", "django-insecure-vsc=qpkdlfthsm)na5b4hf9q!tiff#!cg00@=*mn@#h!+cd_))"
+    "SECRET_KEY",
+    "django-insecure-vsc=qpkdlfthsm)na5b4hf9q!tiff#!cg00@=*mn@#h!+cd_))"
 )
 
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000").rstrip("/")
 
 REMOTE_NODES = [
-    node.rstrip("/")
-    for node in os.environ.get("REMOTE_NODES", "").split(",")
-    if node.strip()
+    node.rstrip("/") for node in os.environ.get("REMOTE_NODES", "").split(",") if node.strip()
 ]
 
 # JSON object keyed by node URL, e.g.
 # {"https://node-a.example.com": {"username": "nodeuser", "password": "nodepass"}}
 try:
-    REMOTE_NODE_CREDENTIALS = json.loads(
-        os.environ.get("REMOTE_NODE_CREDENTIALS", "{}")
-    )
+    REMOTE_NODE_CREDENTIALS = json.loads(os.environ.get("REMOTE_NODE_CREDENTIALS", "{}"))
 except (TypeError, json.JSONDecodeError):
     REMOTE_NODE_CREDENTIALS = {}
 
 ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
-    if host.strip()
+    host.strip() for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if host.strip()
 ]
 
 # Heroku sits behind a proxy, so these let Django generate correct https absolute URLs.
@@ -116,7 +109,7 @@ DATABASES = {
     "default": dj_database_url.config(
         default=os.environ.get(
             "DATABASE_URL",
-            f"sqlite:///{BASE_DIR / os.environ.get('SQLITE_NAME', 'db.sqlite3')}",
+            f"sqlite:///{BASE_DIR / os.environ.get('SQLITE_NAME', 'db.sqlite3')}"
         ),
         conn_max_age=600,
         conn_health_checks=True,
@@ -139,7 +132,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "America/Edmonton"
+TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
@@ -180,25 +173,16 @@ STORAGES = {
         )
     },
     "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"
     },
 }
 
+# Backward compatibility for packages that still read legacy storage settings.
 DEFAULT_FILE_STORAGE = STORAGES["default"]["BACKEND"]
 STATICFILES_STORAGE = STORAGES["staticfiles"]["BACKEND"]
-WHITENOISE_COMPRESS_OFFLINE = False
+
+WHITENOISE_USE_FINDERS = True
 
 AUTH_USER_MODEL = "authors.Author"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
-# Django REST Framework Settings
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.BasicAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
-    ],
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
-    ],
-}

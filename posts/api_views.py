@@ -1,8 +1,6 @@
 from urllib.parse import urlencode, urlparse
 import json
 import requests
-import base64
-import mimetypes
 
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
@@ -267,13 +265,12 @@ def post_detail_api(request, author_id, post_id):
         kwargs={"author_id": post.author_id, "post_id": post.id},
     )
 
-    if post.is_remote:
-        image_url = post.remote_image or ""
-    else:
-        if post.image and post.image.name:
+    image_url = ""
+    if post.image:
+        try:
             image_url = request.build_absolute_uri(post.image.url)
-        else:
-            image_url = ""
+        except (AttributeError, ValueError):
+            pass
 
     payload = {
         "type": "entry",
@@ -575,34 +572,13 @@ def stream_api(request):
         .order_by("-created")
     )
 
-    def serialize_post(post, req):
-        # Default fields
-        content_type = post.content_type
-        content = post.content
-
-        # Local image → convert to base64
-        if not post.is_remote and post.image:
-            try:
-                mime, _ = mimetypes.guess_type(post.image.name)
-                mime = mime or "image/png"
-                with post.image.open("rb") as f:
-                    b64 = base64.b64encode(f.read()).decode("utf-8")
-
-                content_type = f"{mime};base64"
-                content = b64
-            except Exception:
-                pass
-
-        # Remote image → leave as-is (remote nodes already encoded it)
-        if post.is_remote:
-            image_url = post.remote_image or ""
-        else:
-            if post.image and post.image.name:
-                image_url = req.build_absolute_uri(post.image.url)
-            else:
-                image_url = ""
-
-        return {
+    base_path = reverse("posts:api-stream")
+    payload = _paginated_collection(
+        request=request,
+        base_path=base_path,
+        collection_type="entries",
+        queryset=posts,
+        serializer=lambda post, req: {
             "type": "entry",
             "id": (
                 (post.remote_id or "")
@@ -615,26 +591,14 @@ def stream_api(request):
                 )
             ),
             "title": post.title,
-            "contentType": content_type,
-            "content": content,
-            "image": image_url,
-            "author": (
-                _remote_author_obj_from_post(post)
-                if post.is_remote
-                else _author_obj(post.author, req)
-            ),
+            "contentType": post.content_type,
+            "content": post.content,
+            "image": (post.remote_image if post.is_remote else (req.build_absolute_uri(post.image.url) if post.image else "")),
+            "author": _remote_author_obj_from_post(post) if post.is_remote else _author_obj(post.author, req),
             "visibility": post.visibility,
             "published": (post.published or post.created).isoformat(),
             "updated": post.updated.isoformat(),
-        }
-
-    base_path = reverse("posts:api-stream")
-    payload = _paginated_collection(
-        request=request,
-        base_path=base_path,
-        collection_type="entries",
-        queryset=posts,
-        serializer=serialize_post,
+        },
     )
     return JsonResponse(payload, status=200)
 
@@ -740,6 +704,7 @@ def _like_obj_public(like: Like, request):
         "published": like.created.isoformat(),
     }
 
+
 def public_posts_api(request):
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
@@ -771,24 +736,6 @@ def public_posts_api(request):
             )
         )
 
-        content_type = post.content_type
-        content = post.content
-        if post.is_remote:
-            image_url = post.remote_image or ""
-        else:
-            if post.image and post.image.name:
-                image_url = request.build_absolute_uri(post.image.url)
-            else:
-                image_url = ""
-
-        if post.image and post.image.name and content_type.startswith("image/"):
-            try:
-                with post.image.open("rb") as f:
-                    b64 = base64.b64encode(f.read()).decode("utf-8")
-                content = b64
-            except Exception:
-                content = ""
-
         items.append({
             "type": "post",
             "id": request.build_absolute_uri(
@@ -798,9 +745,9 @@ def public_posts_api(request):
                 )
             ),
             "title": post.title,
-            "contentType": content_type,
-            "content": content,
-            "image": image_url,
+            "contentType": post.content_type,
+            "content": post.content,
+            "image": request.build_absolute_uri(post.image.url) if post.image else "",
             "author": author_obj,
             "visibility": post.visibility,
             "published": (post.published or post.created).isoformat(),
