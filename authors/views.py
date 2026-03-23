@@ -1,6 +1,7 @@
 from datetime import datetime
 import uuid
 import re
+from functools import lru_cache
 from urllib.parse import quote, unquote, urlparse
 from socket import timeout
 from django.views.decorators.csrf import csrf_exempt
@@ -804,8 +805,16 @@ def _host_from_author_url(author_url):
         return None
 
 
-def _auth_for_node(node_url):
+@lru_cache(maxsize=128)
+def _cached_auth_for_node(node_url):
     return get_node_auth(node_url)
+
+
+def _auth_for_node(node_url):
+    normalized = (node_url or "").rstrip("/")
+    if not normalized:
+        return None
+    return _cached_auth_for_node(normalized)
 
 
 def _remote_username_seed(remote_id):

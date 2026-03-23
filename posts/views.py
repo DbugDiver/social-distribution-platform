@@ -1,6 +1,8 @@
 from datetime import datetime
+import time
 import hashlib
 import re
+from functools import lru_cache
 from urllib.parse import urljoin
 
 import markdown as md
@@ -84,8 +86,16 @@ def _site_url():
 
 # ---------- Federation HTTP helpers ----------
 
-def _auth_for_node(node_url):
+@lru_cache(maxsize=128)
+def _cached_auth_for_node(node_url):
     return get_node_auth(node_url)
+
+
+def _auth_for_node(node_url):
+    normalized = (node_url or "").rstrip("/")
+    if not normalized:
+        return None
+    return _cached_auth_for_node(normalized)
 
 
 def _candidate_post_endpoints(node_url):
@@ -313,10 +323,16 @@ def _fetch_remote_public_posts():
     if cache.get("federation_public_posts_refresh_lock"):
         return []
 
-    cache.set("federation_public_posts_refresh_lock", True, 30)
+    cache.set("federation_public_posts_refresh_lock", True, 120)
     cached = []
+    start = time.monotonic()
+    max_seconds = 4.0
+    max_nodes = int(getattr(settings, "FEDERATION_MAX_NODES", 3) or 3)
 
-    for node in get_configured_nodes(exclude_local=True):
+    for node in get_configured_nodes(exclude_local=True)[:max_nodes]:
+        if (time.monotonic() - start) > max_seconds:
+            break
+
         node = node.rstrip("/")
         if node == _site_url():
             continue
@@ -710,19 +726,13 @@ def stream(request):
             p.rendered = None
 
         if p.is_remote:
-            remote_comments = _fetch_remote_comments(p, viewer=user)
-            remote_likes = _fetch_remote_likes(p)
-            p.remote_comment_list = remote_comments[:3]
-            p.remote_like_list = remote_likes
-            p.comment_count = len(remote_comments)
-            p.like_count = len(remote_likes)
-            p.liked_by_me = any(
-                _normalize_author_id(l.get("author_id")) in {
-                    _normalize_author_id(f"{_site_url()}/authors/{user.id}"),
-                    _normalize_author_id(f"{_site_url()}/authors/api/authors/{user.id}"),
-                }
-                for l in remote_likes
-            )
+            # Stream view is latency-sensitive: avoid remote comments/likes fan-out here.
+            # Full remote interactions still load on detail pages.
+            p.remote_comment_list = []
+            p.remote_like_list = []
+            p.comment_count = 0
+            p.like_count = 0
+            p.liked_by_me = False
             p.comment_list = []
         else:
             p.like_count = p.likes.count()
