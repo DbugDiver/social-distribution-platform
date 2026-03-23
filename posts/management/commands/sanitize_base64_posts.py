@@ -52,6 +52,12 @@ class Command(BaseCommand):
             raw_content = (post.content or "").strip()
             raw_image = (post.remote_image or "").strip()
             
+            # Debug: show posts with large content
+            if len(raw_content) > 5000:
+                first_50 = raw_content[:50].replace("\n", "\\n")
+                is_base64 = looks_like_base64(raw_content)
+                self.stdout.write(f"  DEBUG [{i}]: Post has {len(raw_content)} bytes, starts with {first_50}..., base64={is_base64}")
+            
             # Check content field for base64 - always clear it, even if remote_image exists
             if raw_content and looks_like_base64(raw_content):
                 # If no remote image URL, convert base64 to data URL
