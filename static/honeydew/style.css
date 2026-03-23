@@ -17,6 +17,7 @@ body{
   background: linear-gradient(135deg,var(--bg1),var(--bg2));
   min-height:100vh;
   color: var(--text);
+  overflow-x: hidden;
 }
 
 :root{

@@ -249,6 +249,33 @@ def _upsert_remote_post_cache(data):
     post.remote_like_count = data["remote_like_count"]
     return post
 
+
+def _sanitize_cached_remote_post(post):
+    if not post.is_remote:
+        return
+
+    changed_fields = []
+    raw_content = (post.content or "").strip()
+    raw_image = (post.remote_image or "").strip()
+
+    if not raw_image and raw_content:
+        if raw_content.startswith("data:image/"):
+            post.remote_image = raw_content
+            post.content = ""
+            changed_fields.extend(["remote_image", "content"])
+        elif _looks_like_base64_image_blob(raw_content):
+            post.remote_image = f"data:image/jpeg;base64,{raw_content}"
+            post.content = ""
+            changed_fields.extend(["remote_image", "content"])
+
+    if post.remote_image and _looks_like_base64_image_blob(post.remote_image):
+        post.remote_image = f"data:image/jpeg;base64,{post.remote_image.strip()}"
+        if "remote_image" not in changed_fields:
+            changed_fields.append("remote_image")
+
+    if changed_fields:
+        post.save(update_fields=changed_fields)
+
 def _fetch_remote_public_posts():
     cached = []
 
@@ -637,6 +664,9 @@ def stream(request):
     )
 
     for p in all_posts:
+        if p.is_remote:
+            _sanitize_cached_remote_post(p)
+
         if p.content_type == Post.ContentType.MARKDOWN:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
         else:
@@ -665,7 +695,14 @@ def stream(request):
             for c in p.comment_list:
                 c.liked_by_me = c.id in comment_liked_ids
 
-    return render(request, "posts/stream.html", {"posts": all_posts})
+    return render(
+        request,
+        "posts/stream.html",
+        {
+            "posts": all_posts,
+            "feed_title": "Public Stream",
+        },
+    )
 
 # ---------- Detail ----------
 def detail(request, post_id):
@@ -673,6 +710,9 @@ def detail(request, post_id):
         post = get_object_or_404(Post, id=post_id)
     else:
         post = get_object_or_404(Post, id=post_id, deleted=False)
+
+    if post.is_remote:
+        _sanitize_cached_remote_post(post)
 
     if post.content_type == Post.ContentType.MARKDOWN:
         rendered = _render_markdown(post.content)
@@ -786,7 +826,34 @@ def superuser_required(user):
 @user_passes_test(superuser_required)
 def author_posts(request, author_id):
     author = get_object_or_404(Author, id=author_id)
-    posts = Post.objects.filter(author=author)
+    if author.is_remote and author.remote_id:
+        try:
+            _fetch_remote_public_posts()
+        except Exception:
+            pass
+
+        rid = author.remote_id.rstrip("/")
+        rid_html = rid.replace("/authors/api/authors/", "/authors/").rstrip("/")
+        rid_api = rid.replace("/authors/", "/authors/api/authors/").rstrip("/")
+        remote_ids = [
+            rid,
+            rid + "/",
+            rid_html,
+            rid_html + "/",
+            rid_api,
+            rid_api + "/",
+        ]
+        posts = Post.objects.filter(
+            is_remote=True,
+            deleted=False,
+            remote_author_url__in=remote_ids,
+        ).order_by("-published", "-created")
+    else:
+        posts = Post.objects.filter(author=author)
+
+    for post in posts:
+        if post.is_remote:
+            _sanitize_cached_remote_post(post)
     return render(request, "posts/author_posts.html", {"author": author, "posts": posts})
 
 

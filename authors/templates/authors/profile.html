@@ -98,6 +98,7 @@
 
                                     <form method="POST" action="{% url 'send-follow-request' %}" style="display:inline;">
                                         {% csrf_token %}
+                                        <input type="hidden" name="next" value="{{ request.path }}">
                                         <input type="hidden" name="is_remote" value="{% if profile_user.is_remote %}True{% else %}False{% endif %}">
                                         {% if profile_user.is_remote and profile_user.remote_id %}
                                         <input type="hidden" name="author_id" value="{{ profile_user.remote_id }}">

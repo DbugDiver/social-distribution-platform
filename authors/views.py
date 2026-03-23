@@ -818,6 +818,35 @@ def _post_remote_inbox(author_url, payload):
     except Exception:
         return False
 
+
+def _looks_like_base64_image_blob(value):
+    raw = (value or "").strip()
+    if len(raw) < 128:
+        return False
+    if raw.startswith("data:image/"):
+        return False
+    return raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR"))
+
+
+def _extract_remote_image_and_content(entry_payload):
+    image_value = (entry_payload.get("image") or "").strip()
+    content_value = entry_payload.get("content") or ""
+    if isinstance(content_value, str):
+        content_value = content_value.strip()
+
+    if not image_value and isinstance(content_value, str):
+        if content_value.startswith("data:image/"):
+            image_value = content_value
+            content_value = ""
+        elif _looks_like_base64_image_blob(content_value):
+            image_value = f"data:image/jpeg;base64,{content_value}"
+            content_value = ""
+
+    if image_value and _looks_like_base64_image_blob(image_value):
+        image_value = f"data:image/jpeg;base64,{image_value}"
+
+    return image_value, content_value
+
 def _store_remote_post(entry_payload, recipient):
     if not isinstance(entry_payload, dict):
         return None
@@ -832,7 +861,7 @@ def _store_remote_post(entry_payload, recipient):
         return None
 
     title = (entry_payload.get("title") or "").strip()
-    content = entry_payload.get("content") or ""
+    remote_image, content = _extract_remote_image_and_content(entry_payload)
     content_type = entry_payload.get("contentType") or "text/plain"
     visibility = (entry_payload.get("visibility") or "PUBLIC").upper()
     deleted_flag = bool(entry_payload.get("deleted", False))
@@ -861,6 +890,7 @@ def _store_remote_post(entry_payload, recipient):
             "remote_author_name": remote_author.displayName or remote_author.username,
             "remote_author_host": remote_author.host or "",
             "node_url": remote_author.host or "",
+            "remote_image": remote_image,
             "deleted": deleted_flag,
         },
     )
@@ -874,6 +904,7 @@ def _store_remote_post(entry_payload, recipient):
         post.remote_author_name = remote_author.displayName or remote_author.username
         post.remote_author_host = remote_author.host or ""
         post.node_url = remote_author.host or ""
+        post.remote_image = remote_image
         post.deleted = deleted_flag
         post.save()
 
