@@ -8,6 +8,7 @@ import requests
 import uuid
 from django.conf import settings
 from django.contrib.auth.decorators import login_required, user_passes_test
+from django.core.cache import cache
 from django.db.models import Q
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
@@ -91,7 +92,7 @@ def _candidate_post_endpoints(node_url):
     base = node_url.rstrip("/")
     return [f"{base}/api/public-posts/"]
 
-def _try_get_json(url, auth=None, timeout=5):
+def _try_get_json(url, auth=None, timeout=2):
     try:
         resp = requests.get(
             url,
@@ -308,6 +309,11 @@ def _sanitize_cached_remote_post(post):
         post.save(update_fields=changed_fields)
 
 def _fetch_remote_public_posts():
+    # Avoid repeated remote fan-out on every page hit.
+    if cache.get("federation_public_posts_refresh_lock"):
+        return []
+
+    cache.set("federation_public_posts_refresh_lock", True, 30)
     cached = []
 
     for node in get_configured_nodes(exclude_local=True):

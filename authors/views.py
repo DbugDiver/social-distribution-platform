@@ -663,7 +663,7 @@ def inbox(request):
 
 
 #-------------------------------Federation
-def _try_get_json(url, auth=None, timeout=5):
+def _try_get_json(url, auth=None, timeout=2):
     try:
         resp = requests.get(
             url,
@@ -729,6 +729,11 @@ def _candidate_remote_author_detail_urls(author_url):
 
 
 def _fetch_remote_author_doc(author_url):
+    cache_key = f"remote_author_doc::{(author_url or '').rstrip('/')}"
+    cached_doc = cache.get(cache_key)
+    if isinstance(cached_doc, dict):
+        return cached_doc
+
     node_url = _host_from_author_url(author_url)
     auth = _auth_for_node(node_url)
 
@@ -739,18 +744,23 @@ def _fetch_remote_author_doc(author_url):
                 continue
 
             if isinstance(payload.get("author"), dict):
-                return payload.get("author")
+                author_doc = payload.get("author")
+                cache.set(cache_key, author_doc, 60)
+                return author_doc
 
             if isinstance(payload.get("items"), list):
                 items = payload.get("items")
                 if items and isinstance(items[0], dict):
+                    cache.set(cache_key, items[0], 60)
                     return items[0]
 
             if isinstance(payload.get("src"), list):
                 items = payload.get("src")
                 if items and isinstance(items[0], dict):
+                    cache.set(cache_key, items[0], 60)
                     return items[0]
 
+            cache.set(cache_key, payload, 60)
             return payload
 
     return None
