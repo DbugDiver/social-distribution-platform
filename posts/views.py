@@ -295,11 +295,9 @@ def _sanitize_cached_remote_post(post):
             post.content = ""
             changed_fields.extend(["remote_image", "content"])
         elif _looks_like_base64_image_blob(raw_content):
-            # Always convert & clear base64 content, even if remote_image URL exists
-            if not raw_image or raw_image.startswith("data:"):
-                post.remote_image = f"data:image/jpeg;base64,{raw_content}"
+            # Just clear base64 content (can't store as data URL - field size limit)
             post.content = ""
-            changed_fields.extend(["remote_image", "content"])
+            changed_fields.append("content")
 
     if post.remote_image and _looks_like_base64_image_blob(post.remote_image):
         post.remote_image = f"data:image/jpeg;base64,{post.remote_image.strip()}"
