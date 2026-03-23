@@ -367,7 +367,6 @@ def send_a_follow_request(request):
         return redirect("author-search")
 
     is_remote = request.POST.get("is_remote") == "True"
-    follow = Follower.objects.filter(follower=author, following=following).first()
 
     if not is_remote:
         # 🏠 LOCAL (your original logic)
@@ -409,7 +408,6 @@ def send_a_follow_request(request):
         author_url = request.POST.get("author_id")
         if not author_url:
             return _redirect_back()
-        Follower.objects.create(follower=author, following=following, status="pending")
 
         # Keep a local pending edge so callbacks can transition it to accepted.
         remote_target = _upsert_remote_author({"id": author_url, "url": author_url})
