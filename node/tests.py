@@ -18,6 +18,7 @@ from django.test import TestCase, Client
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from posts.models import Post
+from node.models import Node
 
 Author = get_user_model()
 
@@ -157,3 +158,35 @@ class NodeAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    # -----------------------------------------
+    # Admin can add a new remote node (Federation)
+    # -----------------------------------------
+    def test_admin_can_create_remote_node(self):
+        """
+        User Story: As a node administrator, I want to configure new remote
+        node credentials so my server can fetch federated data.
+        """
+        # 1. Log in as the node administrator (superuser)
+        self.client.login(username="admin", password="adminpass")
+
+        # 2. Submit the form to add a new remote node connection
+        # Make sure "node-management" matches the name="" in your urls.py
+        response = self.client.post(
+            reverse("node-management"),
+            {
+                "host": "http://127.0.0.1:8001/",
+                "auth_username": "adm",
+                "auth_password": "123",
+                "is_active": "on"
+            }
+        )
+
+        # 3. Verify the form submission redirects successfully (302 status code)
+        self.assertEqual(response.status_code, 302)
+
+         # 4. Verify the new Node was actually saved to the database
+        self.assertTrue(
+            Node.objects.filter(host="http://127.0.0.1:8001/").exists(),
+            "The new remote node should be saved in the database."
+        )
