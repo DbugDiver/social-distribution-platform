@@ -52,11 +52,12 @@ class Command(BaseCommand):
             raw_content = (post.content or "").strip()
             raw_image = (post.remote_image or "").strip()
             
-            # Check content field for base64
+            # Check content field for base64 - always clear it, even if remote_image exists
             if raw_content and looks_like_base64(raw_content):
-                # Move base64 to remote_image
-                if not raw_image:
+                # If no remote image URL, convert base64 to data URL
+                if not raw_image or raw_image.startswith("data:"):
                     post.remote_image = f"data:image/jpeg;base64,{raw_content}"
+                # Always clear the content field when we detect base64
                 post.content = ""
                 changed = True
                 self.stdout.write(
