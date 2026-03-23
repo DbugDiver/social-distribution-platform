@@ -42,3 +42,19 @@ class AuthorUpdateForm(forms.ModelForm):
                 )
 
         return github_link
+
+        # Your new backend email validation
+        def clean_email(self):
+            email = self.cleaned_data.get("email")
+
+            if email:
+                try:
+                    # This runs Django's heavy-duty internal email checker
+                    validate_email(email)
+                except forms.ValidationError:
+                    # If it fails, we throw a custom error back to the template
+                    raise forms.ValidationError(
+                        "Please enter a valid email address (e.g., name@domain.com)"
+                    )
+
+            return email

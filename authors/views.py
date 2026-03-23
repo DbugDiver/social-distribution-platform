@@ -1,19 +1,20 @@
-from datetime import datetime
+import json
 import uuid
-from urllib.parse import unquote, urlparse
+from datetime import datetime
 from socket import timeout
-from django.views.decorators.csrf import csrf_exempt
-from django.conf import settings
-from django.http import JsonResponse
+from urllib.parse import unquote, urlparse
+
 import markdown as md  # If you are rendering markdown here
 import requests
-import json
+from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.cache import cache
 from django.db.models import Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.csrf import csrf_exempt
 
 from posts.models import Like, Post
 
@@ -24,7 +25,7 @@ from .models import Author, Follower, Notification
 @login_required
 def home_feed(request):
     """Main Page"""
-    #return redirect("author-profile", pk=request.user.id)
+    # return redirect("author-profile", pk=request.user.id)
     return redirect("posts:stream")
 
 
@@ -61,8 +62,7 @@ def author_profile(request, pk):
 
     if request.user != author:
         follow = Follower.objects.filter(
-            follower=request.user,
-            following=author
+            follower=request.user, following=author
         ).first()
 
         if follow:
@@ -86,6 +86,7 @@ def author_profile(request, pk):
         # Refresh remote cache, then filter cached remote posts for this author.
         try:
             from posts.views import _fetch_remote_public_posts
+
             _fetch_remote_public_posts()
         except Exception:
             pass
@@ -126,9 +127,9 @@ def author_profile(request, pk):
 
     # 3. Add like/comment counts for the template
     post_liked_ids = set(
-        Like.objects.filter(author=request.user, post__in=posts, post__is_remote=False).values_list(
-            "post_id", flat=True
-        )
+        Like.objects.filter(
+            author=request.user, post__in=posts, post__is_remote=False
+        ).values_list("post_id", flat=True)
     )
 
     for p in posts:
@@ -268,6 +269,7 @@ def custom_login(request):
         )
     return render(request, "registration/login.html", {"form": form})
 
+
 @csrf_exempt
 def signup_author(request):
     if request.method == "POST":
@@ -294,7 +296,7 @@ def signup_author(request):
 def edit_profile(request, author_id=None):
     """Edit Profile Logic"""
     # Merge-fix: default to current user, and block editing someone else's profile.
-    
+
     # If admin, allow editing any author
     if request.user.is_superuser:
         author = get_object_or_404(Author, id=author_id)
@@ -322,6 +324,18 @@ def edit_profile(request, author_id=None):
                 },
             )
 
+        # 1. Check if the user asked to delete their image
+        if request.POST.get("clear_image") == "true":
+            # This deletes the actual file from Cloudinary/Local Storage
+            if author.profileImage:
+                author.profileImage.delete(save=False)
+            # This removes the reference from the database
+            author.profileImage = None
+
+        # 2. If they didn't delete, check if they uploaded a NEW image
+        elif "profileImage" in request.FILES:
+            author.profileImage = request.FILES["profileImage"]
+
         # Handle the image upload
         if "profileImage" in request.FILES:
             author.profileImage = request.FILES["profileImage"]
@@ -342,7 +356,6 @@ def edit_profile(request, author_id=None):
     return render(request, "authors/edit_profile.html", {"form": form})
 
 
-
 @login_required
 def send_a_follow_request(request):
     author = request.user
@@ -354,6 +367,7 @@ def send_a_follow_request(request):
         return redirect("author-search")
 
     is_remote = request.POST.get("is_remote") == "True"
+    follow = Follower.objects.filter(follower=author, following=following).first()
 
     if not is_remote:
         # 🏠 LOCAL (your original logic)
@@ -363,10 +377,7 @@ def send_a_follow_request(request):
         if author == following:
             return _redirect_back()
 
-        follow = Follower.objects.filter(
-            follower=author,
-            following=following
-        ).first()
+        follow = Follower.objects.filter(follower=author, following=following).first()
 
         if follow:
             if follow.status == "rejected":
@@ -381,9 +392,7 @@ def send_a_follow_request(request):
                 )
         else:
             Follower.objects.create(
-                follower=author,
-                following=following,
-                status="pending"
+                follower=author, following=following, status="pending"
             )
 
             Notification.objects.create(
@@ -400,11 +409,14 @@ def send_a_follow_request(request):
         author_url = request.POST.get("author_id")
         if not author_url:
             return _redirect_back()
+        Follower.objects.create(follower=author, following=following, status="pending")
 
         # Keep a local pending edge so callbacks can transition it to accepted.
         remote_target = _upsert_remote_author({"id": author_url, "url": author_url})
         if remote_target:
-            relation, _ = Follower.objects.get_or_create(follower=author, following=remote_target)
+            relation, _ = Follower.objects.get_or_create(
+                follower=author, following=remote_target
+            )
             if relation.status != "accepted":
                 relation.status = "pending"
                 relation.save(update_fields=["status"])
@@ -418,7 +430,7 @@ def send_a_follow_request(request):
                 "host": settings.SITE_URL,
                 "url": f"{settings.SITE_URL}/authors/api/authors/{author.id}",
             },
-            "object": author_url
+            "object": author_url,
         }
 
         inbox_url = author_url.rstrip("/") + "/inbox/"
@@ -431,6 +443,7 @@ def send_a_follow_request(request):
             pass
 
         return _redirect_back()
+
 
 @login_required
 def accept_follow_request(request, pk):
@@ -447,14 +460,14 @@ def accept_follow_request(request, pk):
         "accepted"  # update the status of the follow request to accepted
     )
     follow_request.save()  # save the changes to the database
-    
+
     # Clean up the old follow_request notification
     Notification.objects.filter(
         recipient=author,
         sender=follower,
-        notification_type__in=["follow_request", "follow"]
+        notification_type__in=["follow_request", "follow"],
     ).delete()
-    
+
     Notification.objects.create(
         recipient=follower,
         sender=author,
@@ -488,14 +501,14 @@ def reject_follow_request(request, pk):
         "rejected"  # update the status of the follow request to rejected
     )
     follow_request.save()  # save the changes to the database
-    
+
     # Clean up the follow_request notification when rejecting
     Notification.objects.filter(
         recipient=author,
         sender=follower,
-        notification_type__in=["follow_request", "follow"]
+        notification_type__in=["follow_request", "follow"],
     ).delete()
-    
+
     return redirect("author-profile", pk=author.pk)
 
 
@@ -504,12 +517,16 @@ def reject_follow_request(request, pk):
 def follow_requests(request):
     """View all pending follow requests for the logged-in author"""
     author = request.user
-    pending_follow_requests = list(Follower.objects.filter(
-        following=author, status="pending"
-    ).select_related("follower", "following"))
+    pending_follow_requests = list(
+        Follower.objects.filter(following=author, status="pending").select_related(
+            "follower", "following"
+        )
+    )
 
     # Keep remote follower names fresh in the UI.
-    _refresh_remote_authors([f.follower for f in pending_follow_requests if getattr(f, "follower", None)])
+    _refresh_remote_authors(
+        [f.follower for f in pending_follow_requests if getattr(f, "follower", None)]
+    )
 
     context = {
         "pending_follow_requests": pending_follow_requests,
@@ -525,7 +542,7 @@ def unfollow(request, pk):
     following = get_object_or_404(
         Author, pk=pk
     )  # get the author that the user wants to unfollow, if the author does not exist, return a 404 error
-    
+
     # Delete local follower relationship(s).
     Follower.objects.filter(follower=author, following=following).delete()
 
@@ -535,12 +552,12 @@ def unfollow(request, pk):
             follower=author,
             following__remote_id=following.remote_id,
         ).delete()
-    
+
     # Clean up any notifications related to this follow relationship
     Notification.objects.filter(
         recipient=author,
         sender=following,
-        notification_type__in=["follow_request", "follow", "follow_accepted"]
+        notification_type__in=["follow_request", "follow", "follow_accepted"],
     ).delete()
 
     if following.is_remote and following.remote_id:
@@ -558,7 +575,7 @@ def unfollow(request, pk):
             "object": following.remote_id,
         }
         _post_remote_inbox(following.remote_id, payload)
-    
+
     return redirect("author-profile", pk=pk)
 
 
@@ -577,11 +594,9 @@ def mutual_following_became_friends(request):
     ).values_list(
         "follower", flat=True
     )  # get all the authors that are following the author that is currently logged in and that have accepted the follow request ie they are both following each other
-    friends = list(Author.objects.filter(
-        id__in=following
-    ).filter(
-        id__in=followers
-    ))  # get all the authors that are both following the logged-in author and that are being followed by the logged-in author, these are the friends of the logged-in author
+    friends = list(
+        Author.objects.filter(id__in=following).filter(id__in=followers)
+    )  # get all the authors that are both following the logged-in author and that are being followed by the logged-in author, these are the friends of the logged-in author
 
     _refresh_remote_authors(friends)
 
@@ -603,7 +618,9 @@ def friends_list(request):
     followers_ids = Follower.objects.filter(
         following=author, status="accepted"
     ).values_list("follower", flat=True)
-    friends = list(Author.objects.filter(id__in=following_ids).filter(id__in=followers_ids))
+    friends = list(
+        Author.objects.filter(id__in=following_ids).filter(id__in=followers_ids)
+    )
 
     # Everyone the user is following (accepted only)
     following = list(Author.objects.filter(id__in=following_ids))
@@ -632,7 +649,7 @@ def inbox(request):
     return render(request, "authors/inbox.html", context)
 
 
-#-------------------------------Federation
+# -------------------------------Federation
 def _try_get_json(url, auth=None, timeout=5):
     try:
         resp = requests.get(
@@ -681,7 +698,9 @@ def _upsert_remote_author(author_payload):
     if not remote_id:
         return None
 
-    host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
+    host = (
+        author_payload.get("host") or _host_from_author_url(remote_id) or ""
+    ).rstrip("/")
     # Ensure we get displayName; it's the primary identifier for remote authors.
     display_name = (author_payload.get("displayName") or "").strip()
     if not display_name:
@@ -692,7 +711,9 @@ def _upsert_remote_author(author_payload):
         node_url = _host_from_author_url(remote_id)
         remote_doc = _try_get_json(remote_id, auth=_auth_for_node(node_url))
         if isinstance(remote_doc, dict):
-            display_name = (remote_doc.get("displayName") or remote_doc.get("username") or "").strip()
+            display_name = (
+                remote_doc.get("displayName") or remote_doc.get("username") or ""
+            ).strip()
 
     if not display_name:
         display_name = "Remote Author"
@@ -737,7 +758,9 @@ def _refresh_remote_author(author):
     if not isinstance(remote_doc, dict):
         return
 
-    display_name = (remote_doc.get("displayName") or remote_doc.get("username") or "").strip()
+    display_name = (
+        remote_doc.get("displayName") or remote_doc.get("username") or ""
+    ).strip()
     host = (remote_doc.get("host") or node_url or author.host or "").rstrip("/")
 
     changed = False
@@ -796,7 +819,9 @@ def api_author_inbox(request, pk):
 
     # Handles remote follow request delivered to this author's inbox.
     if activity_type == "follow":
-        actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        actor_payload = (
+            payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        )
         remote_follower = _upsert_remote_author(actor_payload)
         if not remote_follower:
             return JsonResponse({"detail": "Invalid actor payload."}, status=400)
@@ -829,7 +854,9 @@ def api_author_inbox(request, pk):
 
     # Handles acceptance callback so the requester node can mark status=accepted locally.
     if activity_type == "follow_accepted":
-        actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        actor_payload = (
+            payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        )
         remote_target = _upsert_remote_author(actor_payload)
         if not remote_target:
             return JsonResponse({"detail": "Invalid actor payload."}, status=400)
@@ -846,7 +873,9 @@ def api_author_inbox(request, pk):
 
     # Handles remote unfollow callback so friendship state updates on this node.
     if activity_type == "unfollow":
-        actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        actor_payload = (
+            payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        )
         remote_follower = _upsert_remote_author(actor_payload)
         if not remote_follower:
             return JsonResponse({"detail": "Invalid actor payload."}, status=400)
@@ -874,6 +903,7 @@ def api_author_inbox(request, pk):
 
     return JsonResponse({"detail": "Unsupported activity type."}, status=400)
 
+
 @login_required
 def author_search(request):
     query = request.GET.get("q", "").strip()
@@ -883,9 +913,13 @@ def author_search(request):
     if query:
         # LOCAL
         # Only list true local accounts here; remote proxy rows are merged below.
-        local_users = Author.objects.filter(
-            Q(username__icontains=query) | Q(displayName__icontains=query)
-        ).filter(is_remote=False).exclude(id=request.user.id)
+        local_users = (
+            Author.objects.filter(
+                Q(username__icontains=query) | Q(displayName__icontains=query)
+            )
+            .filter(is_remote=False)
+            .exclude(id=request.user.id)
+        )
 
         for user in local_users:
             author_id = f"{settings.SITE_URL}/authors/api/authors/{user.id}"
@@ -904,16 +938,18 @@ def author_search(request):
                 except Exception:
                     profile_image = ""
 
-            results.append({
-                "id": f"{settings.SITE_URL}/authors/api/authors/{user.id}",  
-                "displayName": user.displayName or user.username,
-                "username": user.username,
-                "host": settings.SITE_URL,
-                "profileImage": profile_image,
-                "is_remote": False,
-                "uuid": str(user.id),
-                "profile_uuid": str(user.id),
-            })
+            results.append(
+                {
+                    "id": f"{settings.SITE_URL}/authors/api/authors/{user.id}",
+                    "displayName": user.displayName or user.username,
+                    "username": user.username,
+                    "host": settings.SITE_URL,
+                    "profileImage": profile_image,
+                    "is_remote": False,
+                    "uuid": str(user.id),
+                    "profile_uuid": str(user.id),
+                }
+            )
 
         # REMOTE
         for node in settings.REMOTE_NODES:
