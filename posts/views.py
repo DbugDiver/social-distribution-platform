@@ -434,6 +434,26 @@ def _url_variants(url):
     return deduped
 
 
+def _post_url_variants(url):
+    raw = (url or "").strip()
+    if not raw:
+        return []
+
+    # For POST/DELETE, prefer slash form first to avoid 301->GET redirect semantics.
+    if raw.endswith("/"):
+        variants = [raw, raw.rstrip("/")]
+    else:
+        variants = [f"{raw}/", raw]
+
+    deduped = []
+    seen = set()
+    for value in variants:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
 def _candidate_remote_comments_urls(post):
     urls = []
 
@@ -447,18 +467,18 @@ def _candidate_remote_comments_urls(post):
             public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments"
             api_path = remote_id + "/comments"
             html_path = remote_id.replace("/api/authors/", "/authors/") + "/comments"
-            urls.extend(_url_variants(public_path))
-            urls.extend(_url_variants(api_path))
-            urls.extend(_url_variants(html_path))
+            urls.extend(_post_url_variants(public_path))
+            urls.extend(_post_url_variants(api_path))
+            urls.extend(_post_url_variants(html_path))
         elif "/authors/" in remote_id and "/posts/" in remote_id:
-            api_path = remote_id.replace("/authors/", "/api/authors/") + "/comments"
             public_path = remote_id.replace("/authors/", "/api/public/authors/") + "/comments"
+            api_path = remote_id.replace("/authors/", "/api/authors/") + "/comments"
             html_path = remote_id + "/comments"
-            urls.extend(_url_variants(api_path))
-            urls.extend(_url_variants(public_path))
-            urls.extend(_url_variants(html_path))
+            urls.extend(_post_url_variants(public_path))
+            urls.extend(_post_url_variants(api_path))
+            urls.extend(_post_url_variants(html_path))
         else:
-            urls.extend(_url_variants(remote_id + "/comments"))
+            urls.extend(_post_url_variants(remote_id + "/comments"))
 
     deduped = []
     seen = set()
@@ -482,18 +502,18 @@ def _candidate_remote_likes_urls(post):
             public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/likes"
             api_path = remote_id + "/likes"
             html_path = remote_id.replace("/api/authors/", "/authors/") + "/likes"
-            urls.extend(_url_variants(public_path))
-            urls.extend(_url_variants(api_path))
-            urls.extend(_url_variants(html_path))
+            urls.extend(_post_url_variants(public_path))
+            urls.extend(_post_url_variants(api_path))
+            urls.extend(_post_url_variants(html_path))
         elif "/authors/" in remote_id and "/posts/" in remote_id:
-            api_path = remote_id.replace("/authors/", "/api/authors/") + "/likes"
             public_path = remote_id.replace("/authors/", "/api/public/authors/") + "/likes"
+            api_path = remote_id.replace("/authors/", "/api/authors/") + "/likes"
             html_path = remote_id + "/likes"
-            urls.extend(_url_variants(api_path))
-            urls.extend(_url_variants(public_path))
-            urls.extend(_url_variants(html_path))
+            urls.extend(_post_url_variants(public_path))
+            urls.extend(_post_url_variants(api_path))
+            urls.extend(_post_url_variants(html_path))
         else:
-            urls.extend(_url_variants(remote_id + "/likes"))
+            urls.extend(_post_url_variants(remote_id + "/likes"))
 
     deduped = []
     seen = set()
@@ -549,7 +569,7 @@ def _candidate_remote_author_urls(post):
 def _candidate_remote_inbox_urls(post):
     inboxes = []
     for author_url in _candidate_remote_author_urls(post):
-        inboxes.extend(_url_variants(f"{author_url.rstrip('/')}/inbox"))
+        inboxes.extend(_post_url_variants(f"{author_url.rstrip('/')}/inbox"))
 
     deduped = []
     seen = set()
@@ -667,6 +687,7 @@ def _send_remote_comment(user, post, text):
                     json=payload,
                     auth=auth,
                     timeout=5,
+                    allow_redirects=False,
                     headers={
                         "Accept": "application/json",
                         "Content-Type": "application/json",
@@ -686,6 +707,7 @@ def _send_remote_comment(user, post, text):
                     json=payload,
                     auth=auth,
                     timeout=5,
+                    allow_redirects=False,
                     headers={
                         "Accept": "application/json",
                         "Content-Type": "application/json",
@@ -738,6 +760,7 @@ def _send_remote_like(user, post):
                         json=payload,
                         auth=auth,
                         timeout=5,
+                        allow_redirects=False,
                         headers={
                             "Accept": "application/json",
                             "Content-Type": "application/json",
@@ -756,6 +779,7 @@ def _send_remote_like(user, post):
                     json=payload,
                     auth=auth,
                     timeout=5,
+                    allow_redirects=False,
                     headers={
                         "Accept": "application/json",
                         "Content-Type": "application/json",
@@ -777,6 +801,7 @@ def _send_remote_like(user, post):
                     json=inbox_payload,
                     auth=auth,
                     timeout=5,
+                    allow_redirects=False,
                     headers={
                         "Accept": "application/json",
                         "Content-Type": "application/json",
@@ -851,6 +876,7 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                         json=payload,
                         auth=auth,
                         timeout=5,
+                        allow_redirects=False,
                         headers={
                             "Accept": "application/json",
                             "Content-Type": "application/json",
@@ -869,6 +895,7 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                     json=payload,
                     auth=auth,
                     timeout=5,
+                    allow_redirects=False,
                     headers={
                         "Accept": "application/json",
                         "Content-Type": "application/json",

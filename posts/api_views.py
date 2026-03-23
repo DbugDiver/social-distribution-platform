@@ -1,11 +1,10 @@
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 import json
-import requests
 
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.core.paginator import EmptyPage, Paginator
-from django.db.models import Q
+from django.db.models import Q, F
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -488,34 +487,11 @@ def _remote_author_obj_from_post(post: Post):
     author_url = (post.remote_author_url or "").strip()
     host = (post.remote_author_host or "").strip()
     display_name = (post.remote_author_name or "Remote Author").strip()
-    github = ""
-    profile_image = ""
 
-    if author_url:
-        try:
-            parsed = urlparse(author_url)
-            node_url = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else host
-            fetch_url = author_url
-
-            # Remote posts may provide HTML profile URL; convert to API author URL for JSON fields.
-            if "/authors/api/authors/" not in fetch_url and "/authors/" in fetch_url:
-                fetch_url = fetch_url.replace("/authors/", "/authors/api/authors/")
-
-            resp = requests.get(
-                fetch_url,
-                auth=_auth_for_node(node_url),
-                timeout=3,
-                headers={"Accept": "application/json"},
-            )
-            if resp.status_code == 200 and isinstance(resp.json(), dict):
-                data = resp.json()
-                display_name = (data.get("displayName") or data.get("username") or display_name).strip()
-                github = (data.get("github") or "").strip()
-                profile_image = (data.get("profileImage") or "").strip()
-                if profile_image.startswith("/") and node_url:
-                    profile_image = f"{node_url}{profile_image}"
-        except Exception:
-            pass
+    # Do not issue network calls while serializing the stream; use cached author fields.
+    profile_image = (getattr(post, "remote_author_image", "") or "").strip()
+    if profile_image.startswith("/") and host:
+        profile_image = f"{host.rstrip('/')}{profile_image}"
 
     return {
         "type": "author",
@@ -523,7 +499,7 @@ def _remote_author_obj_from_post(post: Post):
         "host": host,
         "displayName": display_name,
         "url": author_url,
-        "github": github,
+        "github": "",
         "profileImage": profile_image,
     }
 
@@ -578,7 +554,7 @@ def stream_api(request):
             )
         )
         .select_related("author")
-        .order_by("-created")
+        .order_by(F("published").desc(nulls_last=True), "-created")
     )
 
     base_path = reverse("posts:api-stream")

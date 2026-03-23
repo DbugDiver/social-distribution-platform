@@ -8,7 +8,11 @@
     {% for notif in notifications %}
         <div class="post-card">
             <div class="post-header">
-                <div class="avatar"></div>
+                {% if notif.sender.profileImage %}
+                    <img class="avatar" src="{{ notif.sender.profileImage.url }}" alt="{{ notif.sender.displayName|default:notif.sender.username }}">
+                {% else %}
+                    <div class="avatar"></div>
+                {% endif %}
                 <div>
                     <div class="author">
                         <a href="{% url 'author-profile' notif.sender.id %}">{{ notif.sender.displayName|default:notif.sender.username }}</a>

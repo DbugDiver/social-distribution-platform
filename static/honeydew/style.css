@@ -126,6 +126,8 @@ body{
   border-radius: 50%;
   background: linear-gradient(135deg,var(--bg1),var(--bg2));
   box-shadow: 0 6px 14px rgba(0,0,0,0.10);
+  object-fit: cover;
+  display: block;
 }
 
 .nav-link{
@@ -790,6 +792,8 @@ body{
   flex: 1;
   min-width: 0; /* Important: prevents flex items from overflowing */
   max-width: 700px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 /* Post cards */
