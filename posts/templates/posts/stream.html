@@ -110,12 +110,7 @@
           {# IMAGE FIRST #}
           {% if post.image or post.remote_image %}
             <div class="post-image-wrapper" style="width:100%; overflow:hidden; border-radius:16px;">
-              <img
-                src="{{ post.image.url|default:post.remote_image }}"
-                alt="Post image"
-                style="width:100%; height:320px; object-fit:cover; display:block;"
-                onerror="this.style.display='none';"
-              >
+              <img src="{% if post.image and post.image.name %}{{ post.image.url }}{% else %}{{ post.remote_image }}{% endif %}">
             </div>
           {% endif %}
 
