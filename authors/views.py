@@ -852,7 +852,10 @@ def _looks_like_base64_image_blob(value):
     # Skip if too short, already a data URL, or looks like a real URL
     if len(raw) < 100:
         return False
-    if raw.startswith(("data:", "http://", "https://", "/")):
+    if raw.startswith(("data:", "http://", "https://")):
+        return False
+    # Skip slash-prefixed paths, but NOT /9j/ or similar base64 signatures
+    if raw.startswith("/") and not any(c.isdigit() for c in raw[1:6]):
         return False
     
     # Check for common image base64 signatures: jpeg, png, gif, webp, bmp, tiff

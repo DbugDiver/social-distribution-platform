@@ -10,8 +10,11 @@ def looks_like_base64(value):
     # Skip if too short, already a data URL, or a real URL
     if len(raw) < 128:
         return False
-    if raw.startswith(("data:", "http://", "https://", "/")):
-        return False
+        if raw.startswith(("data:", "http://", "https://")):
+            return False
+        # Skip slash-prefixed paths, but NOT /9j/ or similar base64 signatures
+        if raw.startswith("/") and not any(c.isdigit() for c in raw[1:6]):
+            return False
     
     # Check for common image base64 signatures
     if raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR")):
