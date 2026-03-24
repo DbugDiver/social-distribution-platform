@@ -79,13 +79,13 @@
 
                             <h2 style="margin: 0">{{ profile_user.displayName|default:profile_user.username }}</h2>
                             <p style="color: var(--muted); margin: 6px 0 14px">@{{ profile_user.username }}</p>
-                           
+
                             {% if request.user != profile_user %}
 
                             <div style="margin-top:10px;">
 
                                 {% if is_following %}
-                                    
+
                                     <p style="color:green; font-weight:600;">
                                         ✔ You are following {{ profile_user.displayName|default:profile_user.username }}
                                     </p>
@@ -219,83 +219,53 @@
             </h3>
 
             {% for event in github_events %}
-                <article class="post-card" style="padding: 16px">
-                    <header
-                        style="
-                            margin-bottom: 8px;
-                            border-bottom: 1px solid #eee;
-                            padding-bottom: 8px;
-                        "
-                    >
-                        <h4 style="margin: 0 0 2px 0; font-size: 0.95rem">
-                            <span style="color: var(--text)"
-                                >GitHub Update - {{ event.icon }}</span
-                            >
-                        </h4>
-                        <small style="color: var(--muted); font-size: 0.75rem">
-                            {{ event.created_at|date:"M j, Y" }} •
-                            <strong>PUBLIC</strong>
-                        </small>
-                    </header>
+                            <article class="post-card" style="padding: 16px">
+                                <header
+                                    style="
+                                        margin-bottom: 8px;
+                                        border-bottom: 1px solid #eee;
+                                        padding-bottom: 8px;
+                                    "
+                                >
+                                    <h4 style="margin: 0 0 2px 0; font-size: 0.95rem">
+                                        <span style="color: var(--text)"
+                                            >{{ event.title }}</span
+                                        >
+                                    </h4>
+                                    <small style="color: var(--muted); font-size: 0.75rem">
+                                        {{ event.published|date:"M j, Y" }} •
+                                        <strong>UNLISTED</strong>
+                                    </small>
+                                </header>
 
-                    <div
-                        class="post-content"
-                        style="margin-bottom: 12px; font-size: 0.85rem"
-                    >
-                        <p style="margin: 0; line-height: 1.4">
-                            <strong
-                                >{{ profile_user.displayName|default:profile_user.username }}</strong
-                            >
+                                <div
+                                    class="post-content"
+                                    style="margin-bottom: 12px; font-size: 0.85rem"
+                                >
+                                    <p style="margin: 0; line-height: 1.4; white-space: pre-line;">
+                                        {{ event.content }}
+                                    </p>
+                                </div>
 
-                            {{ event.action_text }}
-                            <a
-                                href="{{ event.repo_url }}"
-                                target="_blank"
-                                style="
-                                    color: var(--text);
-                                    font-weight: 700;
-                                    text-decoration: none;
-                                "
-                            >
-                                {{ event.repo_name }}
-                            </a>
+                                <footer
+                                    style="
+                                        display: flex;
+                                        gap: 12px;
+                                        font-size: 0.75rem;
+                                        color: var(--muted);
+                                        border-top: 1px solid #eee;
+                                        padding-top: 8px;
+                                    "
+                                >
+                                    <span>Automated Activity</span>
+                                </footer>
+                            </article>
 
-                            {% if event.extra_info %}
-                            <br />
-                            <span
-                                style="
-                                    color: var(--muted);
-                                    font-style: italic;
-                                    font-size: 0.85em;
-                                    display: inline-block;
-                                    margin-top: 4px;
-                                "
-                            >
-                                "{{ event.extra_info }}"
-                            </span>
-                            {% endif %}
-                        </p>
-                    </div>
-
-                    <footer
-                        style="
-                            display: flex;
-                            gap: 12px;
-                            font-size: 0.75rem;
-                            color: var(--muted);
-                            border-top: 1px solid #eee;
-                            padding-top: 8px;
-                        "
-                    >
-                        <span>Automated Activity</span>
-                    </footer>
-                </article>
-
-            {% empty %}
-                <div class="post-card" style="text-align: center; color: var(--muted); padding: 32px">
-                    <p style="margin: 0">No GitHub activity so far..</p>
-                </div>
-            {% endfor %}
+                        {% empty %}
+                            <div class="post-card" style="text-align: center; color: var(--muted); padding: 32px">
+                                <p style="margin: 0">No GitHub activity so far..</p>
+                            </div>
+                        {% endfor %}
         </section>
     </article>
 </main>

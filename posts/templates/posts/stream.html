@@ -11,7 +11,7 @@
   <section class="header-inner">
     <p class="brand">SocialDistribution</p>
     <nav class="header-nav" aria-label="Primary navigation">
-      
+
       <a href="{% url 'inbox' %}" class="nav-link">Inbox</a>
 
       <form method="GET" action="{% url 'author-search' %}" class="search-form" role="search">
@@ -87,7 +87,14 @@
               </strong>
 
               <time class="timestamp" datetime="{{ post.effective_published|date:'c' }}">
-                {{ post.effective_published|default:post.created }}
+                    {{ post.effective_published|default:post.created }}
+
+                    {% if post.visibility and post.visibility|upper != 'PUBLIC' %}
+                        <span class="post-visibility" style="color: #64748b; font-size: 0.85rem;">
+                            | {{ post.visibility|title }}
+                        </span>
+                    {% endif %}
+
               </time>
             </address>
 

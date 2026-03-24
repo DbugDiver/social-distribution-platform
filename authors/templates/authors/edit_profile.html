@@ -23,7 +23,19 @@
                 {% endif %}
 
                 <form method="POST" enctype="multipart/form-data">
-                    {% csrf_token %} {% for field in form %}
+                    {% csrf_token %}
+                    {% if form.instance.profileImage %}
+                    <div style="margin-bottom: 24px; display: flex; align-items: center; gap: 16px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                        <img src="{{ form.instance.profileImage.url }}" alt="Current Avatar" style="width: 64px; height: 64px; border-radius: 50%; object-fit: cover;">
+                            <div>
+                                <p style="margin: 0 0 8px 0; font-size: 0.9rem; font-weight: 600;">Current Picture</p>
+                                <button type="submit" name="remove_image" value="true" class="pill" style="background-color: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 12px; font-size: 0.85rem; cursor: pointer;">
+                                    Remove Picture
+                                </button>
+                            </div>
+                    </div>
+                    {% endif %}
+                    {% for field in form %}
                     <p class="form-row">
                         <label
                             class="form-label"

@@ -181,14 +181,14 @@ def _parse_datetime(value):
 
 def _looks_like_base64_image_blob(value):
     """Detect base64-encoded image data with high confidence.
-    
+
     Checks for:
     - Known image format signatures (JPEG, PNG, GIF, WebP, BMP, etc)
     - Long continuous alphanumeric strings that match base64 pattern
     - Excludes data URLs and real URLs
     """
     raw = (value or "").strip()
-    
+
     # Skip if too short, already a data URL, or looks like a real URL
     if len(raw) < 100:
         return False
@@ -197,27 +197,27 @@ def _looks_like_base64_image_blob(value):
     # Skip slash-prefixed paths, but NOT /9j/ or similar base64 signatures
     if raw.startswith("/") and not any(c.isdigit() for c in raw[1:6]):
         return False
-    
+
     # Check for common image base64 signatures: jpeg, png, gif, webp, bmp, tiff
     if raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR", "QkI", "TU4g", "II4g")):
         return True
-    
+
     # Additional check: long base64-like string (mostly alphanumeric + /+= with good entropy)
     if len(raw) > 150:
         # Remove padding and common separators
         clean = raw.replace("=", "").replace("+", "").replace("/", "").replace("\n", "").replace("\r", "").replace(" ", "")
-        
+
         # If it's a very long continuous alphanumeric string, likely base64 encoded binary
         if re.match(r"^[A-Za-z0-9]{100,}$", clean):
             # Count uppercase/lowercase to filter out things like "aaaaaa..."
             upper = sum(1 for c in raw if c.isupper())
             lower = sum(1 for c in raw if c.islower())
             nums = sum(1 for c in raw if c.isdigit())
-            
+
             # Real base64 has good mix of cases and numbers
             if upper > 5 and lower > 5 and (upper + lower + nums) / len(raw) > 0.9:
                 return True
-    
+
     return False
 
 
@@ -227,7 +227,7 @@ def _normalize_remote_post(raw, node_url):
     remote_post_id = raw.get("id") or raw.get("remote_id") or raw.get("url")
     comments_obj = raw.get("comments") if isinstance(raw.get("comments"), dict) else {}
     likes_obj = raw.get("likes") if isinstance(raw.get("likes"), dict) else {}
-    
+
     image_url = (raw.get("image") or "").strip()
     content = (raw.get("content") or "")
     if isinstance(content, str):
@@ -295,7 +295,7 @@ def _upsert_remote_post_cache(data):
             "deleted": False,
         },
     )
-    
+
      # attach transient attrs used by templates/views
     post.remote_comments_url = data["remote_comments_url"]
     post.remote_likes_url = data["remote_likes_url"]
@@ -591,7 +591,7 @@ def _candidate_remote_inbox_urls(post):
             deduped.append(value)
             seen.add(value)
     return deduped
-    
+
 def _fetch_remote_comments(post, viewer=None, include_like_state=True):
     data = None
     comments_url = ""
@@ -873,6 +873,7 @@ def stream(request):
 
     all_posts = list(
         Post.objects.filter(deleted=False)
+        .exclude(title__startswith="GitHub Activity:") # <-- EXCLUDE GITHUB POSTS HERE
         .filter(
             Q(is_remote=False, author=user)
             | Q(is_remote=False, visibility=Post.Visibility.PUBLIC)
@@ -1358,8 +1359,8 @@ def _push_deleted_post_to_remote_recipients(post):
                 },
             )
         except Exception:
-            pass      
-        
+            pass
+
 # ---------- Create ----------
 
 @login_required
@@ -1381,7 +1382,7 @@ def create(request):
             post.save(update_fields=["remote_id"])
 
             _push_post_to_remote_recipients(post)
-            
+
             return redirect("posts:stream")
     else:
         form = PostForm()
@@ -1505,7 +1506,7 @@ def followers_feed(request):
     ):
         remote_following_urls.update(_url_variants(remote_id))
 
-    posts = Post.objects.filter(deleted=False).filter(
+    posts = Post.objects.filter(deleted=False).exclude(title__startswith="GitHub").filter(
         Q(author_id__in=following_ids, visibility=Post.Visibility.UNLISTED, is_remote=False)
         | Q(author_id__in=friend_ids, visibility=Post.Visibility.FRIENDS, is_remote=False)
         | Q(author_id=author.id, is_remote=False)
