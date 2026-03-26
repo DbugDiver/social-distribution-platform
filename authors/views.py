@@ -185,7 +185,7 @@ def author_profile(request, pk):
                 p.liked_by_me = any(
                     _normalize_author_id(l.get("author_id")) in {
                         _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
-                        _normalize_author_id(f"{_site_url()}/authors/api/authors/{request.user.id}"),
+                        _normalize_author_id(f"{_site_url()}/api/authors/{request.user.id}"),
                     }
                     for l in remote_likes
                 )
@@ -465,10 +465,10 @@ def send_a_follow_request(request):
             "type": "follow",
             "actor": {
                 "type": "author",
-                "id": f"{settings.SITE_URL}/authors/api/authors/{author.id}",
+                "id": f"{settings.SITE_URL}/api/authors/{author.id}",
                 "displayName": author.displayName or author.username,
                 "host": settings.SITE_URL,
-                "url": f"{settings.SITE_URL}/authors/api/authors/{author.id}",
+                "url": f"{settings.SITE_URL}/api/authors/{author.id}",
             },
             "object": author_url
         }

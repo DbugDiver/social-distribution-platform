@@ -147,7 +147,7 @@ def _remote_like_matches_user(raw_like, user):
     }
     local_ids = {
         _normalize_author_id(f"{_site_url()}/authors/{user.id}"),
-        _normalize_author_id(f"{_site_url()}/authors/api/authors/{user.id}"),
+        _normalize_author_id(f"{_site_url()}/api/authors/{user.id}"),
     }
     return bool(candidate_ids.intersection(local_ids))
 
@@ -156,7 +156,7 @@ def _normalized_local_author_ids(user):
     base = _site_url()
     return {
         _normalize_author_id(f"{base}/authors/{user.id}"),
-        _normalize_author_id(f"{base}/authors/api/authors/{user.id}"),
+        _normalize_author_id(f"{base}/api/authors/{user.id}"),
     }
 
 
@@ -979,7 +979,7 @@ def detail(request, post_id):
         remote_likes = _fetch_remote_likes(post)
         post_liked_by_me = any(_normalize_author_id(l.get("author_id")) in {
             _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
-            _normalize_author_id(f"{_site_url()}/authors/api/authors/{request.user.id}"),
+            _normalize_author_id(f"{_site_url()}/api/authors/{request.user.id}"),
         } for l in remote_likes)
 
         return render(
@@ -1201,7 +1201,7 @@ def _remote_api_author_base(author_obj):
         return remote_id
 
     if "/authors/" in remote_id:
-        return remote_id.replace("/authors/", "/authors/api/authors/")
+        return remote_id.replace("/authors/", "/api/authors/")
 
     return remote_id
 
