@@ -10,7 +10,92 @@ from .forms import NodeForm
 from .models import Node
 from .registry import get_configured_nodes, get_node_auth
 from posts.models import Post
+from requests.auth import HTTPBasicAuth
+from requests.exceptions import RequestException
+import requests
+from requests.auth import HTTPBasicAuth
+from requests.exceptions import RequestException
 
+# TODO: DELETE THIS FUNCTION BEFORE SUBMISSION
+def inspect_remote_authors(node):
+    url = f"{node.host.rstrip('/')}/api/authors/"
+    try:
+        resp = requests.get(
+            url,
+            auth=HTTPBasicAuth(node.auth_username, node.auth_password),
+            timeout=(5, 10),
+            headers={"Accept": "application/json"},
+            allow_redirects=True,
+        )
+        print("AUTHORS STATUS:", resp.status_code)
+        print("AUTHORS CONTENT-TYPE:", resp.headers.get("Content-Type", ""))
+        data = resp.json()
+        print("AUTHORS JSON:", data)
+        return data
+    except Exception as e:
+        print("AUTHORS FETCH ERROR:", e)
+        return None
+    
+    
+# TODO: DELETE THIS FUNCTION BEFORE SUBMISSION
+def discover_remote_endpoints(node):
+    base = (node.host or "").rstrip("/")
+
+    candidates = {
+        "authors": [
+            f"{base}/api/authors/",
+            f"{base}/authors/api/authors/",
+            f"{base}/authors/",
+        ],
+        "stream_html": [
+            f"{base}/app/stream/",
+            f"{base}/stream/",
+            f"{base}/",
+        ],
+        "stream_api": [
+            f"{base}/api/stream/",
+            f"{base}/app/api/stream/",
+        ],
+        "public_posts": [
+            f"{base}/api/public-posts/",
+            f"{base}/api/posts/",
+            f"{base}/public/posts/",
+            f"{base}/posts/",
+        ],
+        "author_posts_template": [
+            f"{base}/api/authors/{{author_id}}/posts/",
+            f"{base}/authors/api/authors/{{author_id}}/posts/",
+        ],
+    }
+
+    found = {}
+
+    for key, urls in candidates.items():
+        found[key] = []
+        for url in urls:
+            try:
+                resp = requests.get(
+                    url,
+                    auth=HTTPBasicAuth(node.auth_username, node.auth_password),
+                    timeout=(5, 10),
+                    allow_redirects=True,
+                    headers={"Accept": "application/json, text/html;q=0.9"},
+                )
+                found[key].append({
+                    "url": url,
+                    "status": resp.status_code,
+                    "content_type": resp.headers.get("Content-Type", ""),
+                    "final_url": resp.url,
+                })
+            except RequestException as e:
+                found[key].append({
+                    "url": url,
+                    "status": "ERROR",
+                    "content_type": str(e),
+                    "final_url": None,
+                })
+
+    return found
 
 def superuser_required(user):
     return user.is_superuser
@@ -120,7 +205,6 @@ def node_admin_dashboard(request):
     }
     return render(request, "node/dashboard.html", context)
 
-
 @user_passes_test(superuser_required)
 def manage_nodes(request):
     if request.method == "POST":
@@ -128,6 +212,7 @@ def manage_nodes(request):
         if form.is_valid():
             node = form.save(commit=False)
             node.host = (node.host or "").rstrip("/")
+
             if node.host == settings.SITE_URL.rstrip("/"):
                 messages.error(request, "Cannot add this server as a remote node.")
             else:
@@ -135,35 +220,62 @@ def manage_nodes(request):
                     f"{node.host}/authors/api/authors/?page=1&size=1&_federated=1",
                     f"{node.host}/authors/api/authors/?search={quote('a')}",
                     f"{node.host}/authors/api/authors/",
+                    f"{node.host}/",
                 ]
+
                 is_reachable = False
                 last_status = None
+                last_error = None
+
                 for probe in probe_urls:
                     try:
                         resp = requests.get(
                             probe,
-                            auth=(node.auth_username, node.auth_password),
-                            timeout=5,
+                            auth=HTTPBasicAuth(node.auth_username, node.auth_password),
+                            timeout=8,
                             headers={"Accept": "application/json"},
+                            allow_redirects=True,
                         )
                         last_status = resp.status_code
+
+                        # helpful for debugging
+                        print(f"Probe {probe} -> {resp.status_code}")
+
                         if resp.status_code in [200, 401, 403]:
                             is_reachable = True
                             break
-                    except Exception:
+
+                    except RequestException as e:
+                        last_error = f"{type(e).__name__}: {str(e)}"
+                        print(f"Probe failed {probe} -> {last_error}")
                         continue
 
                 if not is_reachable:
-                    messages.error(
-                        request,
-                        "Could not reach remote host. Check host URL and that the peer app is online.",
-                    )
+                    if last_error:
+                        messages.error(
+                            request,
+                            f"Could not reach remote host. Last error: {last_error}"
+                        )
+                    else:
+                        messages.error(
+                            request,
+                            f"Could not reach remote host. Last status: {last_status}"
+                        )
                 elif last_status in [401, 403]:
                     messages.error(
                         request,
                         "Remote host rejected credentials (401/403). Check auth username/password for that node.",
                     )
                 else:
+                    # TODO: DELETE ALL LINES BEFORE node.save() PRIOR TO SUBMISSION
+                    authors_data = inspect_remote_authors(node)
+                    print("AUTHORS DATA:", authors_data)
+                    results = discover_remote_endpoints(node)
+
+                    for group, entries in results.items():
+                        print(f"\n=== {group.upper()} ===")
+                        for entry in entries:
+                            print(entry)
                     node.save()
                     messages.success(request, "Remote node saved.")
                     return redirect("manage-nodes")
@@ -174,7 +286,6 @@ def manage_nodes(request):
 
     nodes = Node.objects.all().order_by("host")
     return render(request, "node/management.html", {"form": form, "nodes": nodes})
-
 
 @user_passes_test(superuser_required)
 def delete_node(request, node_id):
@@ -201,6 +312,7 @@ def approvals(request):
 def manage_authors(request):
     authors = _federated_authors()
     return render(request, "node/manage_authors.html", {"authors": authors})
+
 @user_passes_test(superuser_required)
 def delete_author(request, author_id):
     author = get_object_or_404(Author, id=author_id)
