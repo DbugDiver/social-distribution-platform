@@ -16,7 +16,7 @@ from node.registry import get_configured_nodes
 
 # ---------------------------------------------------
 # Get single author
-# GET /authors/api/authors/<pk>/
+# GET /api/authors/<pk>/
 # ---------------------------------------------------
 @api_view(["GET"])
 def api_get_author(request, pk):
@@ -58,7 +58,7 @@ def api_get_all_authors(request):
 
     # Local and cached remote-proxy authors in this node DB.
     for author in authors:
-        author_url = f"{base_url}/authors/api/authors/{author.id}"
+        author_url = f"{base_url}/api/authors/{author.id}"
         profile_image = ""
         if getattr(author, "profileImage", None):
             try:
@@ -89,7 +89,7 @@ def api_get_all_authors(request):
             node = (node or "").rstrip("/")
             if not node:
                 continue
-            remote_url = f"{node}/authors/api/authors/?search={query}&_federated=1&page=1&size={size}"
+            remote_url = f"{node}/api/authors/?search={query}&_federated=1&page=1&size={size}"
             try:
                 resp = requests.get(
                     remote_url,
@@ -121,7 +121,7 @@ def api_get_all_authors(request):
     })
 # ---------------------------------------------------
 # Follow author
-# PUT /authors/api/authors/<pk>/follow/
+# PUT /api/authors/<pk>/follow/
 # ---------------------------------------------------
 @api_view(["PUT", "POST"])
 @permission_classes([IsAuthenticated])
@@ -138,7 +138,7 @@ def api_follow_author(request, pk):
     return Response(context,status=status.HTTP_201_CREATED)
 # ---------------------------------------------------
 # Accept follow request
-# POST /authors/api/authors/<pk>/accept/
+# POST /api/authors/<pk>/accept/
 # ---------------------------------------------------
 @api_view(["POST", "PUT"])
 @permission_classes([IsAuthenticated])
@@ -151,7 +151,7 @@ def api_accept_follow(request, pk):
     return Response(context,status=status.HTTP_200_OK)
 # ---------------------------------------------------
 # Reject follow request
-# POST /authors/api/authors/<pk>/reject/
+# POST /api/authors/<pk>/reject/
 # ---------------------------------------------------
 @api_view(["POST", "PUT"])
 @permission_classes([IsAuthenticated])
@@ -164,7 +164,7 @@ def api_reject_follow(request, pk):
     return Response(context,status=status.HTTP_200_OK)
 # ---------------------------------------------------
 # Get following list
-# GET /authors/api/authors/<pk>/following/
+# GET /api/authors/<pk>/following/
 # ---------------------------------------------------
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -178,7 +178,7 @@ def api_get_following(request, pk):
     return Response({"type": "following","count": count,"items": items})
 # ---------------------------------------------------
 # Unfollow
-# DELETE /authors/api/authors/<pk>/unfollow/
+# DELETE /api/authors/<pk>/unfollow/
 # ---------------------------------------------------
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
@@ -190,7 +190,7 @@ def api_unfollow(request, pk):
     return Response(context,status=status.HTTP_204_NO_CONTENT)
 # ---------------------------------------------------
 # Get friends (mutual followers)
-# GET /authors/api/authors/<pk>/friends/
+# GET /api/authors/<pk>/friends/
 # ---------------------------------------------------
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

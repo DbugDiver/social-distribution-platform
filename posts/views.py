@@ -870,7 +870,7 @@ def stream(request):
         .exclude(remote_id="")
         .values_list("remote_id", flat=True)
     )
-
+    
     all_posts = list(
         Post.objects.filter(deleted=False)
         .filter(
@@ -1297,6 +1297,7 @@ def _push_post_to_remote_recipients(post):
 
     for remote_author in recipients:
         _send_post_to_remote_inbox(remote_author, post)
+
 
 def _push_deleted_post_to_remote_recipients(post):
     following_ids = set(

@@ -792,9 +792,9 @@ def _candidate_remote_author_search_urls(node, query):
     q = quote(query)
     base = node.rstrip("/")
     return [
-        f"{base}/authors/api/authors/?search={q}",
-        f"{base}/authors/api/authors/?page=1&size=200&_federated=1",
-        f"{base}/authors/api/authors/",
+        f"{base}/api/authors/?search={q}",
+        f"{base}/api/authors/?page=1&size=200&_federated=1",
+        f"{base}/api/authors/",
     ]
 
 
@@ -927,7 +927,7 @@ def _refresh_remote_authors(authors):
 
 def _local_author_payload(author):
     base = settings.SITE_URL.rstrip("/")
-    author_url = f"{base}/authors/api/authors/{author.id}"
+    author_url = f"{base}/api/authors/{author.id}"
     return {
         "type": "author",
         "id": author_url,
@@ -1187,7 +1187,7 @@ def author_search(request):
         ).filter(is_remote=False).exclude(id=request.user.id)
 
         for user in local_users:
-            author_id = f"{settings.SITE_URL}/authors/api/authors/{user.id}"
+            author_id = f"{settings.SITE_URL}/api/authors/{user.id}"
             if author_id in seen_ids:
                 continue
             seen_ids.add(author_id)
@@ -1204,7 +1204,7 @@ def author_search(request):
                     profile_image = ""
 
             results.append({
-                "id": f"{settings.SITE_URL}/authors/api/authors/{user.id}",  
+                "id": f"{settings.SITE_URL}/api/authors/{user.id}",  
                 "displayName": user.displayName or user.username,
                 "username": user.username,
                 "host": settings.SITE_URL,
