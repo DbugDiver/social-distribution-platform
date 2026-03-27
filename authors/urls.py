@@ -38,6 +38,4 @@ urlpatterns = [
     path("inbox/", views.inbox, name="inbox"),
     path("search/", views.author_search, name="author-search"),
    
-
-  
 ]
