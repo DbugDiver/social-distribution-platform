@@ -5,7 +5,9 @@ from . import views
 urlpatterns = [
     path("", api_views.api_get_all_authors),  # /api/authors/
     path("<uuid:pk>/", api_views.api_get_author),
-    path("<uuid:pk>/follow/", api_views.api_follow_author),
+    #path("<uuid:pk>/follow/", api_views.api_follow_author),
+    path("<uuid:pk>/following/<path:foreign_id>/", api_views.api_follow_author),  #keep both patter other team may not add /
+    path("<uuid:pk>/following/<path:foreign_id>", api_views.api_follow_author),  
     path("<uuid:pk>/inbox/", views.api_author_inbox),
     path("<uuid:pk>/accept/", api_views.api_accept_follow),
     path("<uuid:pk>/reject/", api_views.api_reject_follow),

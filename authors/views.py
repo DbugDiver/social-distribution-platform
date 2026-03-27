@@ -1188,7 +1188,7 @@ def api_author_inbox(request, pk):
                 recipient=target,
                 sender__remote_id=remote_follower.remote_id,
                 notification_type__in=["follow", "follow_request", "follow_accepted"],
-            ).delete()
+        ).delete()
 
         return JsonResponse({"detail": "Unfollow received."}, status=200)
     if activity_type in ["entry", "post"]:

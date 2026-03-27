@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.core.paginator import EmptyPage, Paginator
 from django.shortcuts import get_object_or_404
 import requests
-
+from urllib.parse import unquote
 from .models import Author, Follower
 from .serializers import AuthorSerializer
 from django.http import JsonResponse
@@ -135,7 +135,9 @@ def api_get_all_authors(request):
 # ---------------------------------------------------
 # Follow author
 # PUT /api/authors/<pk>/follow/
+# 
 # ---------------------------------------------------
+'''
 @api_view(["PUT", "POST"])
 @permission_classes([IsAuthenticated])
 def api_follow_author(request, pk):
@@ -149,6 +151,132 @@ def api_follow_author(request, pk):
     follow.save()
     context={"message": "Follow request sent"}
     return Response(context,status=status.HTTP_201_CREATED)
+'''
+
+@api_view(["GET", "PUT", "DELETE"])
+@permission_classes([IsAuthenticated])
+def api_follow_author(request, pk, foreign_id):
+    follower = get_object_or_404(Author, pk=pk)
+
+    # Decode percent-encoded URL
+    decoded_id = unquote(foreign_id).rstrip("/")
+
+    # Try to find existing author (local or remote)
+    following = Author.objects.filter(
+        remote_id=decoded_id
+    ).first()
+
+    # If not found → create remote author placeholder
+    if not following:
+        following = Author.objects.create(
+            remote_id=decoded_id,
+            displayName="Remote User",
+            is_remote=True,
+        )
+
+    # 🚫 Cannot follow yourself
+    if follower == following:
+        return Response(
+            {"error": "Cannot follow yourself"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # =========================
+    # 🔍 GET → check following
+    # =========================
+    if request.method == "GET":
+        exists = Follower.objects.filter(
+            follower=follower,
+            following=following,
+            status="accepted"
+        ).exists()
+
+        return Response(
+            {"following": exists},
+            status=status.HTTP_200_OK
+        )
+
+    # =========================
+    # ➕ PUT → follow request
+    # =========================
+    if request.method == "PUT":
+        follow, created = Follower.objects.get_or_create(
+            follower=follower,
+            following=following
+        )
+
+        follow.status = "pending"
+        follow.save()
+
+        # 🔥 If remote → send to inbox
+        if following.is_remote:
+            try:
+                #inbox_url = f"{decoded_id}/inbox/".replace("/authors/", "/api/authors/")
+                inbox_url = decoded_id.rstrip("/") + "/inbox/"
+
+                payload = {
+                    "type": "Follow",
+                    "actor": {
+                        "type": "author",
+                        "id": f"{request.scheme}://{request.get_host()}/api/authors/{follower.id}",
+                        "displayName": follower.displayName,
+                        "host": f"{request.scheme}://{request.get_host()}",
+                    },
+                    "object": {
+                        "type": "author",
+                        "id": decoded_id,
+                    }
+                }
+
+                requests.post(inbox_url, json=payload, timeout=5)
+
+            except Exception as e:
+                print("❌ Failed to send to remote inbox:", e)
+
+        return Response(
+            {"message": "Follow request sent"},
+            status=status.HTTP_201_CREATED
+        )
+
+    # =========================
+    # ❌ DELETE → unfollow
+    # =========================
+    if request.method == "DELETE":
+        deleted, _ = Follower.objects.filter(
+            follower=follower,
+            following=following
+        ).delete()
+
+        if deleted == 0:
+            return Response(
+                {"error": "Not following"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # 🔥 notify remote node
+        if following.is_remote:
+            try:
+                inbox_url = decoded_id + "/inbox/"
+
+                payload = {
+                    "type": "Unfollow",
+                    "actor": {
+                        "type": "author",
+                        "id": f"{request.scheme}://{request.get_host()}/api/authors/{follower.id}",
+                        "host": f"{request.scheme}://{request.get_host()}",
+                    },
+                    "object": {
+                    "type": "author",
+                    "id": decoded_id,
+                    }
+                }
+
+                requests.post(inbox_url, json=payload, timeout=5)
+
+            except Exception as e:
+                print("❌ Remote delete failed:", e)
+
+        return Response({"message": "Unfollowed"}, status=200)
 # ---------------------------------------------------
 # Accept follow request
 # POST /api/authors/<pk>/accept/
