@@ -10,6 +10,7 @@ import requests
 from .models import Author, Follower
 from .serializers import AuthorSerializer
 from django.http import JsonResponse
+from django.conf import settings
 from posts.models import Post
 from node.registry import get_configured_nodes
 
@@ -21,8 +22,20 @@ from node.registry import get_configured_nodes
 @api_view(["GET"])
 def api_get_author(request, pk):
     author=get_object_or_404(Author, pk=pk)
-    serializer=AuthorSerializer(author)
-    return Response(serializer.data)
+    #serializer=AuthorSerializer(author)
+    #return Response(serializer.data)
+    
+    base = f"{request.scheme}://{request.get_host()}"
+
+    return JsonResponse({
+        "type": "author",
+        "id": f"{base}/api/authors/{author.id}",
+        "host": f"{base}/",
+        "displayName": author.displayName or author.username,
+        "github": author.github or "",
+        "profileImage": author.profileImage or "",
+        "web": f"{base}/authors/{author.id}"
+    })
 #----------------------------------------------------------
 # Search for author by name to add them
 #GET /api/authors/?search=<name>
