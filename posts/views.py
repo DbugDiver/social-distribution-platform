@@ -1112,6 +1112,7 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
 
 # ---------- Stream ----------
 
+@login_required
 def stream(request):
     pending_remote_comments = request.session.get("pending_remote_comments", {})
     user = request.user
