@@ -402,10 +402,11 @@ def _fetch_remote_public_posts():
     cached = []
     start = time.monotonic()
     max_seconds = 4.0
+    deadline = start + max_seconds
     max_nodes = int(getattr(settings, "FEDERATION_MAX_NODES", 3) or 3)
 
     for node in get_configured_nodes(exclude_local=True)[:max_nodes]:
-        if (time.monotonic() - start) > max_seconds:
+        if time.monotonic() >= deadline:
             break
 
         node = node.rstrip("/")
@@ -417,7 +418,13 @@ def _fetch_remote_public_posts():
         found_feed = False
 
         for endpoint in _candidate_post_endpoints(node):
-            data = _try_get_json(endpoint, auth=auth)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+
+            # Keep individual probe timeouts short so the stream never stalls.
+            probe_timeout = max(0.5, min(1.2, remaining))
+            data = _try_get_json(endpoint, auth=auth, timeout=probe_timeout)
             if not data:
                 continue
 
