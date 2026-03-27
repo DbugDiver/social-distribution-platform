@@ -87,7 +87,9 @@ def _federated_authors():
 
                     payload = response.json() or {}
                     if isinstance(payload, dict):
-                        entries = payload.get("items", [])
+                        entries = payload.get("items")
+                        if not isinstance(entries, list):
+                            entries = payload.get("src", [])
                     elif isinstance(payload, list):
                         entries = payload
                     else:
