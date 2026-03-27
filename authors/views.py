@@ -76,11 +76,21 @@ def author_profile(request, pk):
     is_following = False
     follow_status = None
 
+    def _follow_relation(follower_author, following_author):
+        if not follower_author or not following_author:
+            return None
+
+        queryset = Follower.objects.filter(follower=follower_author)
+        if following_author.is_remote and following_author.remote_id:
+            queryset = queryset.filter(
+                Q(following=following_author) | Q(following__remote_id=following_author.remote_id)
+            )
+        else:
+            queryset = queryset.filter(following=following_author)
+        return queryset.first()
+
     if request.user != author:
-        follow = Follower.objects.filter(
-            follower=request.user,
-            following=author
-        ).first()
+        follow = _follow_relation(request.user, author)
 
         if follow:
             follow_status = follow.status
@@ -89,14 +99,30 @@ def author_profile(request, pk):
     # 1. Determine if the person viewing is a mutual friend of the profile owner
     is_friend = False
     if request.user != author:
-        is_friend = (
-            Follower.objects.filter(
-                follower=request.user, following=author, status="accepted"
-            ).exists()
-            and Follower.objects.filter(
-                follower=author, following=request.user, status="accepted"
-            ).exists()
-        )
+        if author.is_remote and author.remote_id:
+            is_friend = (
+                Follower.objects.filter(
+                    follower=request.user,
+                    status="accepted",
+                )
+                .filter(Q(following=author) | Q(following__remote_id=author.remote_id))
+                .exists()
+                and Follower.objects.filter(
+                    following=request.user,
+                    status="accepted",
+                )
+                .filter(Q(follower=author) | Q(follower__remote_id=author.remote_id))
+                .exists()
+            )
+        else:
+            is_friend = (
+                Follower.objects.filter(
+                    follower=request.user, following=author, status="accepted"
+                ).exists()
+                and Follower.objects.filter(
+                    follower=author, following=request.user, status="accepted"
+                ).exists()
+            )
 
     # 2. Fetch the correct posts based on who is looking.
     if author.is_remote:
