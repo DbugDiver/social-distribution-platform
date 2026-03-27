@@ -15,12 +15,28 @@ urlpatterns = [
 ]
 '''
 # Changes made for merging backened and social distribution
+'''
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/", include("django.contrib.auth.urls")),
 
     path("", include("posts.urls")),           # homepage = posts stream
     path("authors/", include("authors.urls")),
+    path("node/", include("node.urls")),
+]
+'''
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path("accounts/", include("django.contrib.auth.urls")),
+
+    path("", include("posts.urls")),
+
+    # UI routes
+    path("authors/", include("authors.urls")),
+
+    # ✅ API routes (NEW)
+    path("api/authors/", include("authors.api_urls")),
+
     path("node/", include("node.urls")),
 ]
 
