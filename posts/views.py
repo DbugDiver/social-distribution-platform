@@ -337,7 +337,7 @@ def _upsert_remote_post_cache(data):
     if not remote_id:
         return None
 
-    post, _ = Post.objects.update_or_create(
+    post, created = Post.objects.update_or_create(
         remote_id=remote_id,
         defaults={
             "author": None,
