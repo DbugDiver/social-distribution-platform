@@ -266,7 +266,8 @@ def authors_list_api(request):
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
 
-    authors_qs = Author.objects.filter(is_remote=False).order_by("-created")
+    # Author model does not have `created`; use stable user timestamps/order.
+    authors_qs = Author.objects.filter(is_remote=False).order_by("-date_joined", "username")
     base_path = reverse("posts:api-authors-list")
     
     payload = _paginated_collection(
