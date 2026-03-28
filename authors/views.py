@@ -473,7 +473,7 @@ def send_a_follow_request(request):
             "object": author_url
         }
 
-        inbox_url = author_url.rstrip("/") + "/inbox/"
+        inbox_url = author_url.rstrip("/") + "/inbox"
         node_url = _host_from_author_url(author_url)
         auth = _auth_for_node(node_url) if node_url else None
 
@@ -938,7 +938,7 @@ def _local_author_payload(author):
 
 
 def _post_remote_inbox(author_url, payload):
-    inbox_url = author_url.rstrip("/") + "/inbox/"
+    inbox_url = author_url.rstrip("/") + "/inbox"
     node_url = _host_from_author_url(author_url)
     auth = _auth_for_node(node_url) if node_url else None
     try:
@@ -1157,6 +1157,7 @@ def api_author_inbox(request, pk):
             sender=remote_follower,
             notification_type__in=["follow", "follow_request", "follow_accepted"],
         ).delete()
+        
         if remote_follower.remote_id:
             Notification.objects.filter(
                 recipient=target,

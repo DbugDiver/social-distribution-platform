@@ -10,7 +10,7 @@ from .models import Post
 class PostForm(forms.ModelForm):
     class Meta:
         model = Post
-        fields = ["title", "content_type", "content", "image", "visibility"]
+        fields = ["title", "description", "content_type", "content", "image", "visibility"]
 
     """
     The clean method is overridden to add custom validation logic based on the content type.

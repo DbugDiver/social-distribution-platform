@@ -100,7 +100,35 @@ def _auth_for_node(node_url):
 
 def _candidate_post_endpoints(node_url):
     base = node_url.rstrip("/")
-    return [f"{base}/api/public-posts/"]
+    return [
+        f"{base}/api/entries/public/",
+        f"{base}/api/entries/",
+    ]
+
+def _extract_collection_items(data):
+    if isinstance(data, list):
+        return data
+
+    if not isinstance(data, dict):
+        return []
+
+    for key in ("src", "items", "posts", "results"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return value
+
+    return []
+
+
+def _normalize_visibility_value(value):
+    raw = (value or Post.Visibility.PUBLIC).strip().upper()
+    if raw == "PUBLIC":
+        return Post.Visibility.PUBLIC
+    if raw in {"FRIENDS", "FRIENDS_ONLY"}:
+        return Post.Visibility.FRIENDS
+    if raw == "UNLISTED":
+        return Post.Visibility.UNLISTED
+    return Post.Visibility.PUBLIC
 
 def _try_get_json(url, auth=None, timeout=2):
     try:
@@ -414,7 +442,7 @@ def _get_remote_post_or_404(post):
 def _author_inbox_url(author_url):
     if not author_url:
         return None
-    return f"{author_url.rstrip('/')}/inbox/"
+    return f"{author_url.rstrip('/')}/inbox"
 
 def _local_author_payload(user):
     base = _site_url()
@@ -939,14 +967,23 @@ def stream(request):
             else:
                 p.comment_count = 0
                 p.like_count = 0
-                p.liked_by_me = False
+                p.liked_by_me = str(p.remote_id) in liked_remote_posts
         else:
+            # ---- LOCAL posts: set counts, comments, and like state ----
             p.like_count = p.likes.count()
             p.comment_count = p.comments.count()
             p.liked_by_me = p.id in post_liked_ids
-            p.comment_list = list(_visible_comments_for_viewer(user, p))
-            for c in p.comment_list:
+
+            visible_comments = list(
+                _visible_comments_for_viewer(user, p).order_by("-published")[:3]
+            )
+            for c in visible_comments:
+                c.like_count = c.likes.count()
                 c.liked_by_me = c.id in comment_liked_ids
+            p.comment_list = visible_comments
+
+    # Remove posts that failed the visibility/access check
+    all_posts = [p for p in all_posts if not getattr(p, '_hide_from_stream', False)]
 
     return render(
         request,
@@ -956,7 +993,7 @@ def stream(request):
             "feed_title": "Public Stream",
         },
     )
-
+    
 # ---------- Detail ----------
 def detail(request, post_id):
     if request.user.is_superuser:
@@ -1210,7 +1247,7 @@ def _remote_inbox_url_for_author(author_obj):
     api_base = _remote_api_author_base(author_obj)
     if not api_base:
         return ""
-    return f"{api_base}/inbox/"
+    return f"{api_base}/inbox"
 
 
 def _post_to_activity_object(post):
@@ -1256,6 +1293,15 @@ def _send_post_to_remote_inbox(remote_author, post):
     except Exception:
         return False
 
+
+def _candidate_node_inbox_urls(node_base):
+    base = (node_base or "").rstrip("/")
+    if not base:
+        return []
+    return [
+        f"{base}/api/inbox",
+        f"{base}/inbox",
+    ]
 
 def _push_post_to_remote_recipients(post):
     """
@@ -1332,34 +1378,44 @@ def _push_deleted_post_to_remote_recipients(post):
         "author": _local_author_payload(post.author),
     }
 
-    for remote_author in recipients:
-        inbox_url = _remote_inbox_url_for_author(remote_author)
-        if not inbox_url:
-            continue
+    delete_payload = {
+        "type": "delete",
+        "object": post.remote_id,
+        "author": _local_author_payload(post.author),
+        "published": timezone.now().isoformat(),
+    }
 
-        node_base = ""
-        remote_id = (remote_author.remote_id or "").strip()
-        if remote_id.startswith("http://") or remote_id.startswith("https://"):
-            parts = remote_id.split("/")
-            if len(parts) >= 3:
-                node_base = f"{parts[0]}//{parts[2]}"
+    for target in deduped:
+        node_base = (target.get("node_url") or "").rstrip("/")
+        inbox_url = target.get("inbox_url") or ""
 
-        auth = _auth_for_node(node_base.rstrip("/")) if node_base else None
+        auth = _auth_for_node(node_base) if node_base else None
 
-        try:
-            requests.post(
-                inbox_url,
-                json=payload,
-                auth=auth,
-                timeout=5,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-            )
-        except Exception:
-            pass      
-        
+        candidate_urls = []
+        if inbox_url:
+            candidate_urls.extend(_post_url_variants(inbox_url))
+        elif node_base:
+            # fallback guesses for node-level inbox-ish endpoints if no author inbox known
+            candidate_urls.extend(_post_url_variants(f"{node_base}/api/inbox"))
+
+        for url in candidate_urls:
+            for payload in (delete_payload, entry_payload):
+                try:
+                    resp = requests.post(
+                        url,
+                        json=payload,
+                        auth=auth,
+                        timeout=5,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        break
+                except Exception as e:
+                    continue
 # ---------- Create ----------
 
 @login_required

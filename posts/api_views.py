@@ -21,6 +21,97 @@ Response: stream_api is based on the response generated
 Citation: chatGpt 5.2, OpenAI, 2026-03-23, https://chatgpt.com/c/69c1857e-4d80-832c-9d52-009651074d80
 """
 
+def _serialize_entry(post, request):
+    """Shared serializer for entry objects to match the spec."""
+    base_url = request.build_absolute_uri("/").rstrip("/")
+
+    if post.is_remote:
+        entry_id = post.remote_id or ""
+        author_obj = _remote_author_obj_from_post(post)
+        image_url = post.remote_image or ""
+        web_url = post.remote_id or ""
+        comments_web = ""
+        likes_web = ""
+        comments_api_url = ""
+        likes_api_url = ""
+        comments_count = 0
+        likes_count = 0
+        comments_src = []
+        likes_src = []
+    else:
+        entry_id = request.build_absolute_uri(
+            reverse(
+                "posts:api-entry-detail",
+                kwargs={"author_id": post.author_id, "post_id": post.id},
+            )
+        )
+        author_obj = _author_obj(post.author, request)
+        image_url = ""
+        if post.image:
+            try:
+                image_url = request.build_absolute_uri(post.image.url)
+            except (AttributeError, ValueError):
+                pass
+        web_url = f"{base_url}/authors/{post.author_id}/entries/{post.id}"
+        comments_web = f"{web_url}/comments"
+        likes_web = f"{web_url}/likes"
+
+        comments_api_url = request.build_absolute_uri(
+            reverse(
+                "posts:api-entry-comments",
+                kwargs={"author_id": post.author_id, "post_id": post.id},
+            )
+        )
+        likes_api_url = request.build_absolute_uri(
+            reverse(
+                "posts:api-entry-likes",
+                kwargs={"author_id": post.author_id, "post_id": post.id},
+            )
+        )
+
+        # First page of comments (size 5)
+        comments_qs = post.comments.select_related("author").order_by("-published")
+        comments_count = comments_qs.count()
+        comments_src = [_comment_obj(c, request) for c in comments_qs[:5]]
+
+        # First page of likes (size 50)
+        likes_qs = post.likes.select_related("author", "post").order_by("-created")
+        likes_count = likes_qs.count()
+        likes_src = [_like_obj(l, request) for l in likes_qs[:50]]
+
+    return {
+        "type": "entry",
+        "id": entry_id,
+        "web": web_url,
+        "title": post.title,
+        "description": getattr(post, "description", "") or "",
+        "contentType": post.content_type,
+        "content": post.content,
+        "image": image_url,
+        "author": author_obj,
+        "visibility": post.visibility,
+        "published": (post.published or post.created).isoformat(),
+        "updated": post.updated.isoformat(),
+        "comments": {
+            "type": "comments",
+            "id": comments_api_url,
+            "web": comments_web,
+            "page_number": 1,
+            "size": 5,
+            "count": comments_count,
+            "src": comments_src,
+        },
+        "likes": {
+            "type": "likes",
+            "id": likes_api_url,
+            "web": likes_web,
+            "page_number": 1,
+            "size": 50,
+            "count": likes_count,
+            "src": likes_src,
+        },
+    }
+    
 def _normalized_author_url(value):
     raw = (value or "").strip().rstrip("/")
     if not raw:
@@ -282,10 +373,27 @@ def post_detail_api(request, author_id, post_id):
         except (AttributeError, ValueError):
             pass
 
+    base_url = request.build_absolute_uri("/").rstrip("/")
+    web_url = f"{base_url}/authors/{post.author_id}/entries/{post.id}"
+    comments_web = f"{web_url}/comments"
+    likes_web = f"{web_url}/likes"
+
+    # First page of comments (size 5)
+    comments_qs = post.comments.select_related("author").order_by("-published")
+    comments_count = comments_qs.count()
+    comments_src = [_comment_obj(c, request) for c in comments_qs[:5]]
+
+    # First page of likes (size 50)
+    likes_qs = post.likes.select_related("author", "post").order_by("-created")
+    likes_count = likes_qs.count()
+    likes_src = [_like_obj(l, request) for l in likes_qs[:50]]
+
     payload = {
         "type": "entry",
         "id": request.build_absolute_uri(post_path),
+        "web": web_url,
         "title": post.title,
+        "description": post.description,
         "contentType": post.content_type,
         "content": post.content,
         "author": _author_obj(post.author, request),
@@ -297,12 +405,20 @@ def post_detail_api(request, author_id, post_id):
         "comments": {
             "type": "comments",
             "id": request.build_absolute_uri(comments_path),
-            "count": post.comments.count(),
+            "web": comments_web,
+            "page_number": 1,
+            "size": 5,
+            "count": comments_count,
+            "src": comments_src,
         },
         "likes": {
             "type": "likes",
             "id": request.build_absolute_uri(likes_path),
-            "count": post.likes.count(),
+            "web": likes_web,
+            "page_number": 1,
+            "size": 50,
+            "count": likes_count,
+            "src": likes_src,
         },
     }
     return JsonResponse(payload, status=200)
@@ -567,30 +683,40 @@ def stream_api(request):
         base_path=base_path,
         collection_type="entries",
         queryset=posts,
-        serializer=lambda post, req: {
-            "type": "entry",
-            "id": (
-                (post.remote_id or "")
-                if post.is_remote
-                else req.build_absolute_uri(
-                    reverse(
-                        "posts:api-post-detail",
-                        kwargs={"author_id": post.author_id, "post_id": post.id},
-                    )
-                )
-            ),
-            "title": post.title,
-            "contentType": post.content_type,
-            "content": post.content,
-            "image": (post.remote_image if post.is_remote else (req.build_absolute_uri(post.image.url) if post.image else "")),
-            "author": _remote_author_obj_from_post(post) if post.is_remote else _author_obj(post.author, req),
-            "visibility": post.visibility,
-            "published": (post.published or post.created).isoformat(),
-            "updated": post.updated.isoformat(),
-        },
+        serializer=_serialize_entry,
     )
     return JsonResponse(payload, status=200)
 
+def author_entries_api(request, author_id):
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET"])
+
+    # Get all non-deleted posts for this author
+    posts = (
+        Post.objects.filter(
+            author_id=author_id,
+            deleted=False
+        )
+        .select_related("author")
+        .order_by("-published", "-created")
+    )
+
+    # Base path for pagination
+    base_path = reverse(
+        "posts:api-author-entries",
+        kwargs={"author_id": author_id}
+    )
+
+    # Use your existing pagination helper
+    payload = _paginated_collection(
+        request=request,
+        base_path=base_path,
+        collection_type="entries",
+        queryset=posts,
+        serializer=_serialize_entry,
+    )
+
+    return JsonResponse(payload, status=200)
 
 def _remote_author_obj_from_payload(author_payload):
     if not isinstance(author_payload, dict):
@@ -713,55 +839,14 @@ def public_posts_api(request):
         .order_by("-created")
     )
 
-    items = []
-    for post in posts:
-        author_obj = _author_obj(post.author, request)
+    items = [_serialize_entry(post, request) for post in posts]
 
-        comments_url = request.build_absolute_uri(
-            reverse(
-                "posts:api-public-post-comments",
-                kwargs={"author_id": post.author_id, "post_id": post.id},
-            )
-        )
-        likes_url = request.build_absolute_uri(
-            reverse(
-                "posts:api-public-post-likes",
-                kwargs={"author_id": post.author_id, "post_id": post.id},
-            )
-        )
-
-        items.append({
-            "type": "post",
-            "id": request.build_absolute_uri(
-                reverse(
-                    "posts:api-post-detail",
-                    kwargs={"author_id": post.author_id, "post_id": post.id},
-                )
-            ),
-            "title": post.title,
-            "contentType": post.content_type,
-            "content": post.content,
-            "image": request.build_absolute_uri(post.image.url) if post.image else "",
-            "author": author_obj,
-            "visibility": post.visibility,
-            "published": (post.published or post.created).isoformat(),
-            "updated": post.updated.isoformat(),
-            "unlisted": post.visibility == Post.Visibility.UNLISTED,
-            "comments": {
-                "type": "comments",
-                "id": comments_url,
-                "count": post.comments.count(),
-            },
-            "likes": {
-                "type": "likes",
-                "id": likes_url,
-                "count": post.likes.count(),
-            },
-        })
-
-    return JsonResponse({"type": "posts", "items": items}, status=200)
-
-
+    return JsonResponse({
+        "type": "entries",
+        "count": len(items),
+        "src": items
+    }, status=200)
+    
 @csrf_exempt
 def public_post_comments_api(request, author_id, post_id):
     post = _public_post_or_404(author_id, post_id)

@@ -30,6 +30,7 @@ class Post(models.Model):
         default=ContentType.MARKDOWN,
     )
     content = models.TextField(blank=True)
+    description = models.CharField(max_length=500, blank=True, default="")
     image = models.ImageField(upload_to="posts/", blank=True, null=True)
     visibility = models.CharField(
         max_length=10,
