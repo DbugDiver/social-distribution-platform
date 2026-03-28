@@ -910,6 +910,61 @@ def _candidate_remote_object_ids(post):
             seen.add(v)
     return deduped
 
+
+def _fetch_comments_from_post_object(post, auth_candidates):
+    """
+    When the comments endpoint returns only count (no actual comments),
+    try fetching the post object itself to extract comments embedded in it.
+    """
+    if not post.is_remote or not post.remote_id or not post.node_url:
+        return []
+    
+    auth_candidates = auth_candidates or _auth_candidates_for_post(post)
+    
+    for endpoint in _candidate_single_post_endpoints(post.node_url, post.remote_id):
+        for auth in auth_candidates:
+            try:
+                resp = requests.get(
+                    endpoint,
+                    auth=auth,
+                    timeout=5,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.status_code != 200:
+                    continue
+                
+                data = resp.json()
+                if not isinstance(data, dict):
+                    continue
+                
+                # Try to extract comments from post object
+                comments_data = (
+                    data.get("comments")
+                    or data.get("_comments")
+                    or data.get("replies")
+                    or data.get("_replies")
+                )
+                
+                if isinstance(comments_data, dict):
+                    items = (
+                        comments_data.get("src")
+                        or comments_data.get("items")
+                        or comments_data.get("results")
+                        or comments_data.get("data")
+                        or comments_data.get("latest")
+                        or []
+                    )
+                    if isinstance(items, list) and items:
+                        return items
+                elif isinstance(comments_data, list) and comments_data:
+                    return comments_data
+                    
+            except Exception:
+                continue
+    
+    return []
+
+
 def _fetch_remote_comments(post, viewer=None, include_like_state=True):
     data = None
     working_url = None
@@ -955,6 +1010,7 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
             data.get("src")
             or data.get("items")
             or data.get("comments")
+            or data.get("latest")
             or data.get("results")
             or data.get("data")
             or []
@@ -966,6 +1022,7 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
                 items.get("src")
                 or items.get("items")
                 or items.get("comments")
+                or items.get("latest")
                 or items.get("results")
                 or []
             )
@@ -975,8 +1032,15 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
     if isinstance(items, dict):
         items = [items]
 
-    if not isinstance(items, list):
-        return []
+    if not isinstance(items, list) or (not items and isinstance(data, dict) and data.get("count")):
+        # If we got count-only response (no actual comments), try fetching post directly
+        # to see if comments are embedded in the post object
+        if not items and isinstance(data, dict) and data.get("count"):
+            items = _fetch_comments_from_post_object(post, auth_candidates) or []
+        
+        # If still no items and it's not a list, return empty
+        if not isinstance(items, list):
+            return []
 
     normalized = []
 

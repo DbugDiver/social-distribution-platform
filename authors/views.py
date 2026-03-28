@@ -90,15 +90,16 @@ def author_profile(request, pk):
 
         if isinstance(remote_doc, dict):
             remote_display_name = _first_non_empty(remote_doc, ["displayName", "username", "name"])
-            remote_username = _first_non_empty(remote_doc, ["username", "displayName", "name"])
+            # NOTE: Don't try to update remote author usernames - they're already deduplicated
+            # during _upsert_remote_author(). Updating them here can cause duplicate key violations.
+            # Instead, only update display name and other non-username fields.
             remote_github = _first_non_empty(remote_doc, ["github", "githubUrl"])
             remote_bio = _first_non_empty(remote_doc, ["bio", "description", "about"])
             remote_profile_image_url = _first_non_empty(remote_doc, ["profileImage", "profile_image", "avatar"])
 
             if remote_display_name:
                 author.displayName = remote_display_name
-            if remote_username:
-                author.username = remote_username
+            # Skip setting username - it's already deduplicated
             if remote_github:
                 author.github = remote_github
             if remote_bio:
@@ -110,8 +111,7 @@ def author_profile(request, pk):
             changed_fields = []
             if remote_display_name and author.displayName != remote_display_name:
                 changed_fields.append("displayName")
-            if remote_username and author.username != remote_username:
-                changed_fields.append("username")
+            # Skip username - don't add to changed_fields
             if remote_github and author.github != remote_github:
                 changed_fields.append("github")
             if remote_bio and author.bio != remote_bio:
@@ -121,7 +121,7 @@ def author_profile(request, pk):
                 try:
                     author.save(update_fields=changed_fields)
                 except Exception as e:
-                    # If save fails (e.g. duplicate username), log but don't crash
+                    # If save fails, log but don't crash
                     # The current cached values will be displayed instead
                     import logging
                     logger = logging.getLogger("socialdistribution")
