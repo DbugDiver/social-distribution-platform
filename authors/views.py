@@ -563,11 +563,17 @@ def send_a_follow_request(request):
         inbox_url = author_url.rstrip("/") + "/inbox/"
         node_url = _host_from_author_url(author_url)
         auth = _auth_for_node(node_url) if node_url else None
+        print("\n🚀 SENDING FOLLOW REQUEST")
+        print("INBOX URL:", inbox_url)
+        print("PAYLOAD:", data)
+        print("AUTH:", auth)
 
         try:
             requests.post(inbox_url, json=data, auth=auth, timeout=5)
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback
+            print("🔥 ERROR sending follow:", e)
+            traceback.print_exc()
 
         return _redirect_back()
 
