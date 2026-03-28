@@ -44,6 +44,9 @@ urlpatterns = [
     path("api/authors/<uuid:author_id>/entries/<uuid:post_id>/comments/", api_views.post_comments_api, name="api-entry-comments"),
     path("api/authors/<uuid:author_id>/entries/<uuid:post_id>/comments/<uuid:comment_id>/", api_views.comment_detail_api, name="api-comment-detail"),
 
+    # ===== Direct Comment Access (Federation) =====
+    path("api/authors/<uuid:author_id>/commented/<uuid:comment_id>/", api_views.commented_detail_api, name="api-commented-detail"),
+
     # ===== Likes on Entries =====
     path("api/authors/<uuid:author_id>/entries/<uuid:post_id>/likes/", api_views.post_likes_api, name="api-entry-likes"),
 

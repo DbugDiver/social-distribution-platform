@@ -400,7 +400,23 @@ def post_comments_api(request, author_id, post_id):
 
 
 def comment_detail_api(request, author_id, comment_id):
-    """GET /api/authors/{author_id}/commented/{comment_id}/ - Get single comment"""
+    """GET /api/authors/{author_id}/entries/{post_id}/comments/{comment_id}/ - Get single comment"""
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET"])
+
+    comment = get_object_or_404(Comment, id=comment_id, post__author_id=author_id)
+    if not _can_view_post_comments(request.user, comment.post):
+        return JsonResponse({"detail": "Not allowed."}, status=403)
+
+    return JsonResponse(_comment_obj(comment, request), status=200)
+
+
+@csrf_exempt
+def commented_detail_api(request, author_id, comment_id):
+    """GET /api/authors/{author_id}/commented/{comment_id}/ - Get single comment directly by ID
+    
+    This is the direct comment endpoint used in federation when comments are referenced.
+    """
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
 
@@ -703,11 +719,11 @@ def _comment_obj(comment: Comment, request):
         # e.g., "http://node/api/authors/111" → "111"
         comment_author_id = comment.remote_author_url.split('/authors/')[-1].rstrip('/')
     
+    # Use the direct comment endpoint: /api/authors/{comment_author}/commented/{comment_id}
     comment_path = reverse(
-        "posts:api-comment-detail",
+        "posts:api-commented-detail",
         kwargs={
-            "author_id": comment.post.author_id,
-            "post_id": comment.post_id,
+            "author_id": comment_author_id,
             "comment_id": comment.id,
         },
     )
