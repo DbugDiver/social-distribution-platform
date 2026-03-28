@@ -1685,16 +1685,39 @@ def _remote_inbox_url_for_author(author_obj):
 
 
 def _post_to_activity_object(post):
-    return {
+    """Build entry object for sending to remote nodes/inboxes."""
+    image_url = ""
+    content = post.content or ""
+    
+    # Get image URL for this post
+    if post.image:
+        try:
+            image_url = f"{_site_url()}{post.image.url}"
+        except (AttributeError, ValueError):
+            pass
+    
+    # For compatibility: include image in content field if this is an image post
+    if image_url and post.content_type == "text/markdown":
+        # If markdown post with image, include markdown image syntax
+        if "![]" not in content or image_url not in content:
+            content = f"![Image]({image_url})\n\n{content}".strip()
+    
+    payload = {
         "type": "entry",
         "id": post.remote_id,
         "title": post.title,
         "contentType": post.content_type,
-        "content": post.content,
+        "content": content,
         "visibility": post.visibility,
         "published": (post.published or post.created).isoformat(),
         "author": _local_author_payload(post.author),
     }
+    
+    # Include image field for teams that support it
+    if image_url:
+        payload["image"] = image_url
+    
+    return payload
 
 
 def _send_post_to_remote_inbox(remote_author, post):
