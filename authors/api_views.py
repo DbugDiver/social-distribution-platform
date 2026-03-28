@@ -132,26 +132,30 @@ def api_get_all_authors(request):
         "size": size,
         "items": list(page_obj.object_list)
     })
+
+
+
+
+# ---------------------------------------------------
+# Get following list
+# GET /api/authors/<pk>/following/  -> return all users this auhtors follow 
+# ---------------------------------------------------
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def api_get_following(request, pk):
+    author=get_object_or_404(Author, pk=pk)
+    following=Follower.objects.filter(follower=author,status="accepted")
+    authors=[f.following for f in following]
+    serializer=AuthorSerializer(authors, many=True)
+    count=len(serializer.data)
+    items=serializer.data
+    return Response({"type": "following","count": count,"items": items})
 # ---------------------------------------------------
 # Follow author
-# PUT /api/authors/<pk>/follow/
-# 
+# Get node_url/api/authors/following/foreign_id -> return Bool if they follow foreigh auhtor or not
+# Delete node_url/api/authors/following/foreign_id - > sends unfollow request in view.py inbox
+# post node_ur/api/authors/following/foreign_id -> post follow request to remote author and send in its inbox
 # ---------------------------------------------------
-'''
-@api_view(["PUT", "POST"])
-@permission_classes([IsAuthenticated])
-def api_follow_author(request, pk):
-    follower=request.user
-    following=get_object_or_404(Author, pk=pk)
-    if follower == following:
-        context={"error": "Cannot follow yourself"}
-        return Response(context, status=status.HTTP_400_BAD_REQUEST)
-    follow, created=Follower.objects.get_or_create(follower=follower,following=following)
-    follow.status="pending"
-    follow.save()
-    context={"message": "Follow request sent"}
-    return Response(context,status=status.HTTP_201_CREATED)
-'''
 
 @api_view(["GET", "PUT", "DELETE"])
 @permission_classes([IsAuthenticated])
@@ -174,7 +178,7 @@ def api_follow_author(request, pk, foreign_id):
             is_remote=True,
         )
 
-    # 🚫 Cannot follow yourself
+    #  Cannot follow yourself
     if follower == following:
         return Response(
             {"error": "Cannot follow yourself"},
@@ -182,7 +186,7 @@ def api_follow_author(request, pk, foreign_id):
         )
 
     # =========================
-    # 🔍 GET → check following
+    #  GET → check following
     # =========================
     if request.method == "GET":
         exists = Follower.objects.filter(
@@ -197,7 +201,7 @@ def api_follow_author(request, pk, foreign_id):
         )
 
     # =========================
-    # ➕ PUT → follow request
+    #  PUT → follow request
     # =========================
     if request.method == "PUT":
         follow, created = Follower.objects.get_or_create(
@@ -208,7 +212,7 @@ def api_follow_author(request, pk, foreign_id):
         follow.status = "pending"
         follow.save()
 
-        # 🔥 If remote → send to inbox
+        #  If remote → send to inbox
         if following.is_remote:
             try:
                 #inbox_url = f"{decoded_id}/inbox/".replace("/authors/", "/api/authors/")
@@ -231,7 +235,7 @@ def api_follow_author(request, pk, foreign_id):
                 requests.post(inbox_url, json=payload, timeout=5)
 
             except Exception as e:
-                print("❌ Failed to send to remote inbox:", e)
+                print(" Failed to send to remote inbox:", e)
 
         return Response(
             {"message": "Follow request sent"},
@@ -239,7 +243,7 @@ def api_follow_author(request, pk, foreign_id):
         )
 
     # =========================
-    # ❌ DELETE → unfollow
+    #  DELETE → unfollow
     # =========================
     if request.method == "DELETE":
         deleted, _ = Follower.objects.filter(
@@ -253,7 +257,7 @@ def api_follow_author(request, pk, foreign_id):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # 🔥 notify remote node
+        #  notify remote node
         if following.is_remote:
             try:
                 inbox_url = decoded_id + "/inbox/"
@@ -274,9 +278,12 @@ def api_follow_author(request, pk, foreign_id):
                 requests.post(inbox_url, json=payload, timeout=5)
 
             except Exception as e:
-                print("❌ Remote delete failed:", e)
+                print(" Remote delete failed:", e)
 
         return Response({"message": "Unfollowed"}, status=200)
+    
+
+
 # ---------------------------------------------------
 # Accept follow request
 # POST /api/authors/<pk>/accept/
@@ -303,20 +310,128 @@ def api_reject_follow(request, pk):
     follow.save()
     context={"message": "Follow request rejected"}
     return Response(context,status=status.HTTP_200_OK)
+
+
 # ---------------------------------------------------
-# Get following list
-# GET /api/authors/<pk>/following/
+# Get followers list
+# GET /api/authors/<pk>/followers/
 # ---------------------------------------------------
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def api_get_following(request, pk):
-    author=get_object_or_404(Author, pk=pk)
-    following=Follower.objects.filter(follower=author,status="accepted")
-    authors=[f.following for f in following]
-    serializer=AuthorSerializer(authors, many=True)
-    count=len(serializer.data)
-    items=serializer.data
-    return Response({"type": "following","count": count,"items": items})
+
+def api_get_followers(request, pk):
+    author = get_object_or_404(Author, pk=pk)
+
+    followers = Follower.objects.filter( following=author,status="accepted")
+    authors = [f.follower for f in followers]
+    serializer = AuthorSerializer(authors, many=True)
+    return Response({
+        "type": "followers",
+        "followers": serializer.data
+    })
+
+# ---------------------------------------------------
+# Get pending request list
+# GET /api/authors/<pk>/follow_requests/
+# ---------------------------------------------------
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+
+def api_get_follow_requests(request, pk):
+    if str(request.user.id) != str(pk):
+        return Response({"error": "Unauthorized"}, status=403)
+    author = get_object_or_404(Author, pk=pk)
+    pending = Follower.objects.filter( following=author,status="pending")
+    authors = [f.follower for f in pending]
+    serializer = AuthorSerializer(authors, many=True)
+    return Response({
+        "type": "follow_requests",
+        "items": serializer.data
+    })
+
+
+@api_view(["GET", "PUT", "DELETE"])
+@permission_classes([IsAuthenticated])
+def api_accept_reject_followers(request, pk, foreign_id):
+    # decode foreign author
+    decoded_id = unquote(foreign_id).rstrip("/")
+    target = get_object_or_404(Author, pk=pk)
+    # find or create remote follower
+    remote_follower = Author.objects.filter(remote_id=decoded_id).first()
+    print(f"Remote follower found : {remote_follower} decoded id = {decoded_id}")
+    '''
+    if not remote_follower:
+        remote_follower = Author.objects.create(
+            remote_id=decoded_id,
+            displayName="Remote User",
+            is_remote=True,
+        )
+    '''
+    if not remote_follower:
+        return Response({"detail": "Remote author not found"}, status=404)
+
+    # =========================
+    #  GET → check follower
+    # =========================
+    if request.method == "GET":
+        '''
+        relation = Follower.objects.filter(
+            follower=remote_follower,
+            following=target,
+            status="accepted"
+        ).first()
+        '''
+        
+        relation = Follower.objects.filter(
+            follower__remote_id=decoded_id,
+            following=target,
+            status="accepted"
+        ).first()
+        if not relation:
+            return Response({"detail": "Not a follower"}, status=404)
+
+        serializer = AuthorSerializer(remote_follower)
+        #serializer = AuthorSerializer(relation.follower)
+        return Response(serializer.data, status=200)
+
+    # =========================
+    #  PUT → accept follower
+    # =========================
+    if request.method == "PUT":
+        relation = Follower.objects.filter(
+            follower=remote_follower,
+            following=target,
+            status="pending"
+        ).first()
+        
+        if not relation:
+            return Response({"detail": "No pending request"}, status=404)
+        
+        relation.status = "accepted"
+        relation.save(update_fields=["status"])
+
+        return Response({"message": "Follower accepted"}, status=200)
+
+    # =========================
+    #  DELETE → remove / reject follower
+    # =========================
+    if request.method == "DELETE":
+        deleted, _ = Follower.objects.filter(
+            follower=remote_follower,
+            following=target
+        ).delete()
+
+        if deleted == 0:
+            return Response(
+                {"detail": "Follower not found"},
+                status=404
+            )
+
+        return Response(
+            {"message": "Follower removed"},
+            status=200
+        )
+    
 # ---------------------------------------------------
 # Unfollow
 # DELETE /api/authors/<pk>/unfollow/

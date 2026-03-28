@@ -7,15 +7,19 @@ from socket import timeout
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from django.http import JsonResponse
-import markdown as md  # If you are rendering markdown here
+import markdown as md
 import requests
 import json
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.timezone import make_aware, now
+from django.contrib.auth import logout
 
 from posts.models import Like, Post
 from node.registry import get_configured_nodes, get_node_auth
@@ -27,7 +31,6 @@ from .models import Author, Follower, Notification
 @login_required
 def home_feed(request):
     """Main Page"""
-    #return redirect("author-profile", pk=request.user.id)
     return redirect("posts:stream")
 
 
@@ -151,27 +154,31 @@ def author_profile(request, pk):
         else:
             allowed_vis = ["PUBLIC"]
 
+        # EXCLUDE GITHUB POSTS HERE
         posts = Post.objects.filter(
             is_remote=True,
             deleted=False,
             visibility__in=allowed_vis,
             remote_author_url__in=list(remote_ids),
-        ).order_by("-published", "-created")
+        ).exclude(title__startswith="GitHub").order_by("-published", "-created")
+
     elif request.user == author:
         # Looking at my own profile: I see all my own posts
-        posts = Post.objects.filter(author=author, deleted=False).order_by("-created")
+        posts = Post.objects.filter(author=author, deleted=False).exclude(title__startswith="GitHub").order_by("-created")
+
     elif is_friend:
         # A friend is looking: They see Public, Friends-only, and Unlisted posts
         posts = Post.objects.filter(
             author=author,
             deleted=False,
             visibility__in=["PUBLIC", "FRIENDS", "UNLISTED"],
-        ).order_by("-created")
+        ).exclude(title__startswith="GitHub").order_by("-created")
+
     else:
         # A stranger is looking: They only see Public posts
         posts = Post.objects.filter(
             author=author, deleted=False, visibility="PUBLIC"
-        ).order_by("-created")
+        ).exclude(title__startswith="GitHub").order_by("-created")
 
     # 3. Add like/comment counts for the template
     post_liked_ids = set(
@@ -188,7 +195,7 @@ def author_profile(request, pk):
                 _sanitize_cached_remote_post(p)
             except Exception:
                 pass
-        
+
         # Convert markdown if needed
         if getattr(p, "content_type", "") == "text/markdown" and md:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
@@ -224,93 +231,100 @@ def author_profile(request, pk):
             p.comment_count = p.comments.count()
             p.liked_by_me = p.id in post_liked_ids
 
-    # 4. Fetch and Format Github activity
+    # 4. Fetch and Format Github activity (Merged Strategy: DB Saving + Rich Styling)
     github_events = []
     if author.github:
         gh_username = author.github.strip("/").split("/")[-1]
 
-        # Check if we already have this user's data saved in the cache
-        cache_key = f"github_events_{gh_username}"
-        cached_events = cache.get(cache_key)
+        # Safety check: Only hit the GitHub API once every 5 minutes per user
+        sync_key = f"gh_sync_test_1_{gh_username}" # Change the name to break the cache
 
-        if cached_events:
-            github_events = cached_events
-        else:
+        if not cache.get(sync_key):
             try:
                 gh_res = requests.get(
                     f"https://api.github.com/users/{gh_username}/events/public",
                     timeout=2,
                 )
                 if gh_res.status_code == 200:
-                    raw_events = gh_res.json()[:5]
+                    raw_events = gh_res.json()[:10]
 
-                    # Parse the raw data into clean, template-ready dictionaries
                     for event in raw_events:
                         event_type = event.get("type", "UnknownEvent")
                         repo_name = event.get("repo", {}).get("name", "unknown/repo")
                         payload = event.get("payload", {})
 
-                        # Fix 1: Convert GitHub's text date into a real Python datetime object
+                        # Parse the date robustly
                         raw_date = event.get("created_at", "")
                         if raw_date:
                             try:
-                                parsed_date = datetime.strptime(
-                                    raw_date, "%Y-%m-%dT%H:%M:%SZ"
-                                )
+                                parsed_date = datetime.strptime(raw_date, "%Y-%m-%dT%H:%M:%SZ")
                             except ValueError:
-                                parsed_date = None
+                                parsed_date = datetime.now()
                         else:
-                            parsed_date = None
+                            parsed_date = datetime.now()
 
-                        clean_event = {
-                            "repo_name": repo_name,
-                            "repo_url": f"https://github.com/{repo_name}",
-                            "created_at": parsed_date,  # Now passes a real date!
-                            "action_text": f"triggered a {event_type} on",
-                            "extra_info": None,
-                            "icon": "🤖",
-                        }
+                        # --- RICH STYLING LOGIC ---
+                        action_text = f"triggered a {event_type} on"
+                        extra_info = ""
+                        icon = "🤖"
 
                         if event_type == "PushEvent":
                             commits = payload.get("commits", [])
-                            # Fix 2: Check GitHub's 'size' key if the commits list is empty
-                            clean_event["action_text"] = f"pushed commit to"
-                            clean_event["icon"] = "🛠️"
-
+                            action_text = "pushed commit to"
+                            icon = "🛠️"
                             if commits and "message" in commits[0]:
-                                clean_event["extra_info"] = commits[0]["message"][:100]
+                                extra_info = commits[0]["message"][:100]
 
                         elif event_type == "PullRequestEvent":
                             action = payload.get("action", "opened")
-                            clean_event["action_text"] = f"{action} a pull request on"
-                            clean_event["icon"] = "🔄"
-                            clean_event["extra_info"] = payload.get(
-                                "pull_request", {}
-                            ).get("title", "")[:100]
+                            action_text = f"{action} a pull request on"
+                            icon = "🔄"
+                            extra_info = payload.get("pull_request", {}).get("title", "")[:100]
 
                         elif event_type == "IssuesEvent":
                             action = payload.get("action", "opened")
-                            clean_event["action_text"] = f"{action} an issue on"
-                            clean_event["icon"] = "⚠️"
-                            clean_event["extra_info"] = payload.get("issue", {}).get(
-                                "title", ""
-                            )[:100]
+                            action_text = f"{action} an issue on"
+                            icon = "⚠️"
+                            extra_info = payload.get("issue", {}).get("title", "")[:100]
 
                         elif event_type == "WatchEvent":
-                            clean_event["action_text"] = "starred the repository"
-                            clean_event["icon"] = "⭐️"
+                            action_text = "starred the repository"
+                            icon = "⭐️"
 
                         elif event_type == "CreateEvent":
                             ref_type = payload.get("ref_type", "repository")
-                            clean_event["action_text"] = f"created a {ref_type} for"
-                            clean_event["icon"] = "🌱"
+                            action_text = f"created a {ref_type} for"
+                            icon = "🌱"
 
-                        github_events.append(clean_event)
+                        # Construct a rich title and content for the Database
+                        post_title = f"GitHub Activity: {icon} {action_text} {repo_name}"
 
-                    # Save the parsed events to the cache for 300 seconds (5 minutes)
-                    cache.set(cache_key, github_events, 300)
-            except:
-                pass
+                        post_content = f"Repository: https://github.com/{repo_name}"
+                        if extra_info:
+                            post_content += f"\n\nDetails: {extra_info}"
+
+                        # DUPLICATE CHECK
+                        if not Post.objects.filter(author=author, title=post_title, published=parsed_date).exists():
+                            Post.objects.create(
+                                id=uuid.uuid4(),
+                                author=author,
+                                title=post_title,
+                                content=post_content,
+                                content_type="text/plain",
+                                visibility="UNLISTED",
+                                published=parsed_date,
+                            )
+
+                    cache.set(sync_key, True, 300)
+            except Exception as e:
+                print(f"GitHub fetch failed: {e}")
+
+        # Finally, query the nicely formatted events from the database
+        github_events = Post.objects.filter(
+            author=author,
+            visibility="UNLISTED",
+            title__startswith="GitHub Activity"
+        ).order_by("-published")[:5]
 
     context = {
         "profile_user": author,
@@ -346,6 +360,7 @@ def custom_login(request):
         )
     return render(request, "registration/login.html", {"form": form})
 
+
 @csrf_exempt
 def signup_author(request):
     if request.method == "POST":
@@ -354,11 +369,28 @@ def signup_author(request):
 
         all_authors = Author.objects.values_list("username", flat=True)
         form = AuthenticationForm(initial={"username": username})
+
+        # 1. Check if username exists
         if username in all_authors:
             return render(
                 request, "registration/login.html", {"show_message": True, "form": form}
             )
 
+        # 2. VALIDATE THE PASSWORD
+        try:
+            validate_password(password)
+        except ValidationError as e:
+            return render(
+                request,
+                "registration/login.html",
+                {
+                    "form": form,
+                    "password_errors": e.messages,
+                    "submitted_username": username
+                }
+            )
+
+        # 3. Create the user only if validation passed
         Author.objects.create_user(
             username=username, password=password, is_approved=False
         )
@@ -371,8 +403,6 @@ def signup_author(request):
 @login_required
 def edit_profile(request, author_id=None):
     """Edit Profile Logic"""
-    # Merge-fix: default to current user, and block editing someone else's profile.
-    
     # If admin, allow editing any author
     if request.user.is_superuser:
         author = get_object_or_404(Author, id=author_id)
@@ -384,13 +414,17 @@ def edit_profile(request, author_id=None):
     if request.method == "POST":
         form = AuthorUpdateForm(request.POST, request.FILES, instance=author)
 
+        if request.POST.get("remove_image") == "true":
+            author.profileImage = ""
+            author.save(update_fields=["profileImage"])
+            return redirect("edit-profile", author_id=author.pk)
+
         github_link = request.POST.get("github", "").strip()
 
         # Check the GitHub link
         if github_link and not github_link.startswith(
             ("https://github.com/", "http://github.com/")
         ):
-            # It's invalid! Return the page WITH the form so they don't lose their other edits
             return render(
                 request,
                 "authors/edit_profile.html",
@@ -404,21 +438,19 @@ def edit_profile(request, author_id=None):
         if "profileImage" in request.FILES:
             author.profileImage = request.FILES["profileImage"]
 
-        # If we get down here, the GitHub link is either valid or empty.
         if form.is_valid():
             form.save()
-            author.save()  # Because github is in your form, form.save() saves it automatically! No need for author.github = github_link
+            author.save()
             return redirect("author-profile", pk=author.pk)
         else:
-            # Form has validation errors, re-render with error messages
             return render(request, "authors/edit_profile.html", {"form": form})
 
     else:
-        # If it's a GET request, load the form pre-filled with their current info
         form = AuthorUpdateForm(instance=author)
 
     return render(request, "authors/edit_profile.html", {"form": form})
 
+from django.contrib.auth import logout
 
 
 @login_required
@@ -434,7 +466,7 @@ def send_a_follow_request(request):
     is_remote = request.POST.get("is_remote") == "True"
 
     if not is_remote:
-        # 🏠 LOCAL (your original logic)
+        # 🏠 LOCAL
         pk = request.POST.get("uuid")
         following = get_object_or_404(Author, pk=pk)
 
@@ -489,15 +521,22 @@ def send_a_follow_request(request):
 
         data = {
             "type": "follow",
-            "actor": {
+            "actor": _local_author_payload(author),
+            "object": {
+                "type": "author",
+                "id": author_url
+            }
+            
+        }
+        '''
+        "actor": {
                 "type": "author",
                 "id": f"{settings.SITE_URL}/api/authors/{author.id}",
                 "displayName": author.displayName or author.username,
                 "host": settings.SITE_URL,
                 "url": f"{settings.SITE_URL}/api/authors/{author.id}",
             },
-            "object": author_url
-        }
+        '''
 
         inbox_url = author_url.rstrip("/") + "/inbox"
         node_url = _host_from_author_url(author_url)
@@ -505,34 +544,31 @@ def send_a_follow_request(request):
 
         try:
             requests.post(inbox_url, json=data, auth=auth, timeout=5)
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
 
         return _redirect_back()
 
 @login_required
 def accept_follow_request(request, pk):
     """accept a follow request from another author"""
-    author = request.user  # get the currently logged in user
+    author = request.user
 
-    follower = get_object_or_404(
-        Author, pk=pk
-    )  # get the author that sent the follow request, if the author does not exist, return a 404 error
+    follower = get_object_or_404(Author, pk=pk)
     follow_request = get_object_or_404(
         Follower, follower=follower, following=author
-    )  # get the follow request, if it does not exist, return a 404 error
-    follow_request.status = (
-        "accepted"  # update the status of the follow request to accepted
     )
-    follow_request.save()  # save the changes to the database
-    
+    follow_request.status = "accepted"
+    follow_request.save()
+
     # Clean up the old follow_request notification
     Notification.objects.filter(
         recipient=author,
         sender=follower,
         notification_type__in=["follow_request", "follow"]
     ).delete()
-    
+
     Notification.objects.create(
         recipient=follower,
         sender=author,
@@ -554,26 +590,22 @@ def accept_follow_request(request, pk):
 @login_required
 def reject_follow_request(request, pk):
     """reject a follow request from another author"""
-    author = request.user  # get the currently logged in user
+    author = request.user
 
-    follower = get_object_or_404(
-        Author, pk=pk
-    )  # get the author that sent the follow request, if the author does not exist, return a 404 error
+    follower = get_object_or_404(Author, pk=pk)
     follow_request = get_object_or_404(
         Follower, follower=follower, following=author
-    )  # get the follow request, if it does not exist, return a 404 error
-    follow_request.status = (
-        "rejected"  # update the status of the follow request to rejected
     )
-    follow_request.save()  # save the changes to the database
-    
+    follow_request.status = "rejected"
+    follow_request.save()
+
     # Clean up the follow_request notification when rejecting
     Notification.objects.filter(
         recipient=author,
         sender=follower,
         notification_type__in=["follow_request", "follow"]
     ).delete()
-    
+
     return redirect("author-profile", pk=author.pk)
 
 
@@ -603,7 +635,7 @@ def unfollow(request, pk):
     following = get_object_or_404(
         Author, pk=pk
     )  # get the author that the user wants to unfollow, if the author does not exist, return a 404 error
-    
+
     # Delete local follower relationship(s).
     Follower.objects.filter(follower=author, following=following).delete()
 
@@ -613,7 +645,7 @@ def unfollow(request, pk):
             follower=author,
             following__remote_id=following.remote_id,
         ).delete()
-    
+
     # Clean up any notifications related to this follow relationship
     Notification.objects.filter(
         recipient=author,
@@ -636,7 +668,7 @@ def unfollow(request, pk):
             "object": following.remote_id,
         }
         _post_remote_inbox(following.remote_id, payload)
-    
+
     return redirect("author-profile", pk=pk)
 
 
@@ -710,7 +742,8 @@ def inbox(request):
     return render(request, "authors/inbox.html", context)
 
 
-#-------------------------------Federation
+# ---------- Federation helpers ----------
+
 def _try_get_json(url, auth=None, timeout=2):
     try:
         resp = requests.get(
@@ -720,6 +753,10 @@ def _try_get_json(url, auth=None, timeout=2):
             headers={"Accept": "application/json"},
         )
         if resp.status_code == 200:
+            # Guard against HTML responses disguised as 200 OK
+            content_type = resp.headers.get("content-type", "")
+            if "html" in content_type and "json" not in content_type:
+                return None
             return resp.json()
     except Exception:
         pass
@@ -727,6 +764,7 @@ def _try_get_json(url, auth=None, timeout=2):
 
 
 def _extract_author_items(payload):
+    """Legacy extractor — kept for backward compat. Use _extract_author_items_flexible instead."""
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
@@ -735,6 +773,59 @@ def _extract_author_items(payload):
         if isinstance(payload.get("src"), list):
             return payload.get("src")
     return []
+
+
+def _extract_author_items_flexible(payload):
+    """
+    Extract a list of author dicts from various response shapes that
+    different groups use:
+      - Direct list: [{"id": ..., "displayName": ...}, ...]
+      - {"items": [...]}
+      - {"src": [...]}
+      - {"results": [...]}
+      - {"authors": [...]}
+      - {"data": [...]}
+      - Paginated DRF: {"count": N, "next": ..., "results": [...]}
+    """
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict) and _looks_like_author(item)]
+
+    if not isinstance(payload, dict):
+        return []
+
+    # Try all known keys that different groups use for their author lists
+    for key in ("items", "src", "results", "authors", "data", "members", "users"):
+        value = payload.get(key)
+        if isinstance(value, list) and value:
+            authors = [item for item in value if isinstance(item, dict) and _looks_like_author(item)]
+            if authors:
+                return authors
+
+    return []
+
+
+def _looks_like_author(item):
+    """
+    Check if a dict looks like an author object by checking for
+    common author fields. Different groups use different field names.
+    """
+    if not isinstance(item, dict):
+        return False
+
+    # Must have at least one identifier field
+    has_id = bool(item.get("id") or item.get("url"))
+    # Must have at least one name field
+    has_name = bool(
+        item.get("displayName")
+        or item.get("username")
+        or item.get("name")
+        or item.get("display_name")
+    )
+    # Type should be "author" or absent (some groups use "entry"/"post" for posts)
+    item_type = (item.get("type") or "").lower()
+    type_ok = item_type in ("", "author", "person", "user")
+
+    return has_id and has_name and type_ok
 
 
 def _first_non_empty(payload, keys):
@@ -787,7 +878,7 @@ def _fetch_remote_author_doc(author_url):
 
     for endpoint in _candidate_remote_author_detail_urls(author_url):
         for candidate_auth in ([auth, None] if auth else [None]):
-            payload = _try_get_json(endpoint, auth=candidate_auth)
+            payload = _try_get_json(endpoint, auth=candidate_auth, timeout=5)
             if not isinstance(payload, dict):
                 continue
 
@@ -808,6 +899,13 @@ def _fetch_remote_author_doc(author_url):
                     cache.set(cache_key, items[0], 60)
                     return items[0]
 
+            # FIX: also check "results" key (used by some groups)
+            if isinstance(payload.get("results"), list):
+                items = payload.get("results")
+                if items and isinstance(items[0], dict):
+                    cache.set(cache_key, items[0], 60)
+                    return items[0]
+
             cache.set(cache_key, payload, 60)
             return payload
 
@@ -815,26 +913,64 @@ def _fetch_remote_author_doc(author_url):
 
 
 def _candidate_remote_author_search_urls(node, query):
+    """
+    Generate many candidate URL patterns for fetching authors from a remote
+    node. Different groups use different API structures.
+    """
     q = quote(query)
     base = node.rstrip("/")
     return [
+        # Search-specific endpoints
         f"{base}/api/authors/?search={q}",
+        f"{base}/api/authors/?search={q}&page=1&size=200",
+        f"{base}/api/authors/?search={q}&_federated=1",
+        # Full listing (we filter client-side by query)
         f"{base}/api/authors/?page=1&size=200&_federated=1",
+        f"{base}/api/authors/?page=1&size=200",
         f"{base}/api/authors/",
+        # Some groups nest under /authors/api/authors/
+        f"{base}/authors/api/authors/?search={q}",
+        f"{base}/authors/api/authors/?page=1&size=200",
+        f"{base}/authors/api/authors/",
+        # Some groups use /api/public/authors/ for unauthenticated access
+        f"{base}/api/public/authors/?search={q}",
+        f"{base}/api/public/authors/?page=1&size=200",
+        f"{base}/api/public/authors/",
     ]
 
 
 def _normalize_remote_author_card(author, node):
     author_id = (author.get("id") or author.get("url") or "").strip()
     host = (author.get("host") or node).rstrip("/")
-    profile_image = (author.get("profileImage") or "").strip()
-    if profile_image.startswith("/"):
+    profile_image = (
+        author.get("profileImage")
+        or author.get("profile_image")
+        or author.get("avatar")
+        or ""
+    ).strip()
+    if profile_image.startswith("/") and host:
         profile_image = f"{host}{profile_image}"
+
+    display_name = (
+        author.get("displayName")
+        or author.get("display_name")
+        or author.get("username")
+        or author.get("name")
+        or "Remote Author"
+    ).strip()
+
+    username = (
+        author.get("username")
+        or author.get("displayName")
+        or author.get("display_name")
+        or author.get("name")
+        or ""
+    ).strip()
 
     return {
         "id": author_id,
-        "displayName": (author.get("displayName") or author.get("username") or "Remote Author").strip(),
-        "username": (author.get("username") or "").strip(),
+        "displayName": display_name,
+        "username": username,
         "host": host,
         "profileImage": profile_image,
         "url": (author.get("url") or author_id).strip(),
@@ -878,15 +1014,29 @@ def _upsert_remote_author(author_payload):
 
     host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
     # Ensure we get displayName; it's the primary identifier for remote authors.
-    display_name = (author_payload.get("displayName") or "").strip()
+    display_name = (
+        author_payload.get("displayName")
+        or author_payload.get("display_name")
+        or ""
+    ).strip()
     if not display_name:
-        display_name = (author_payload.get("username") or "").strip()
+        display_name = (
+            author_payload.get("username")
+            or author_payload.get("name")
+            or ""
+        ).strip()
 
     # Fallback: resolve from remote author endpoint when payload omits names.
     if not display_name:
         remote_doc = _fetch_remote_author_doc(remote_id)
         if isinstance(remote_doc, dict):
-            display_name = (remote_doc.get("displayName") or remote_doc.get("username") or "").strip()
+            display_name = (
+                remote_doc.get("displayName")
+                or remote_doc.get("display_name")
+                or remote_doc.get("username")
+                or remote_doc.get("name")
+                or ""
+            ).strip()
 
     if not display_name:
         display_name = "Remote Author"
@@ -931,7 +1081,13 @@ def _refresh_remote_author(author):
     if not isinstance(remote_doc, dict):
         return
 
-    display_name = (remote_doc.get("displayName") or remote_doc.get("username") or "").strip()
+    display_name = (
+        remote_doc.get("displayName")
+        or remote_doc.get("display_name")
+        or remote_doc.get("username")
+        or remote_doc.get("name")
+        or ""
+    ).strip()
     host = (remote_doc.get("host") or node_url or author.host or "").rstrip("/")
 
     changed = False
@@ -976,45 +1132,36 @@ def _post_remote_inbox(author_url, payload):
 
 def _looks_like_base64_image_blob(value):
     """Detect base64-encoded image data with high confidence.
-    
+
     Checks for:
     - Known image format signatures (JPEG, PNG, GIF, WebP, BMP, etc)
     - Long continuous alphanumeric strings that match base64 pattern
     - Excludes data URLs and real URLs
     """
     raw = (value or "").strip()
-    
-    # Skip if too short, already a data URL, or looks like a real URL
+
     if len(raw) < 100:
         return False
     if raw.startswith(("data:", "http://", "https://")):
         return False
-    # Skip slash-prefixed paths, but NOT /9j/ or similar base64 signatures
     if raw.startswith("/") and not any(c.isdigit() for c in raw[1:6]):
         return False
-    
-    # Check for common image base64 signatures: jpeg, png, gif, webp, bmp, tiff
+
     if raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR", "QkI", "TU4g", "II4g")):
         return True
-    
-    # Additional check: long base64-like string (mostly alphanumeric + /+= with good entropy)
+
     if len(raw) > 150:
-        # Remove padding and common separators
         clean = raw.replace("=", "").replace("+", "").replace("/", "").replace("\n", "").replace("\r", "").replace(" ", "")
-        
-        # If it's a very long continuous alphanumeric string, likely base64 encoded binary
+
         if re.match(r"^[A-Za-z0-9]{100,}$", clean):
-            # Count uppercase/lowercase to filter out things like "aaaaaa..."
             upper = sum(1 for c in raw if c.isupper())
             lower = sum(1 for c in raw if c.islower())
             nums = sum(1 for c in raw if c.isdigit())
-            
-            # Real base64 has good mix of cases and numbers
+
             if upper > 5 and lower > 5 and (upper + lower + nums) / len(raw) > 0.9:
                 return True
-    
-    return False
 
+    return False
 
 
 def _extract_remote_image_and_content(entry_payload):
@@ -1036,6 +1183,7 @@ def _extract_remote_image_and_content(entry_payload):
 
     return image_value, content_value
 
+
 def _store_remote_post(entry_payload, recipient):
     if not isinstance(entry_payload, dict):
         return None
@@ -1054,7 +1202,7 @@ def _store_remote_post(entry_payload, recipient):
     content_type = entry_payload.get("contentType") or "text/plain"
     visibility = (entry_payload.get("visibility") or "PUBLIC").upper()
     deleted_flag = bool(entry_payload.get("deleted", False))
-    
+
     allowed_visibilities = [
         Post.Visibility.PUBLIC,
         Post.Visibility.FRIENDS,
@@ -1189,9 +1337,10 @@ def api_author_inbox(request, pk):
                 recipient=target,
                 sender__remote_id=remote_follower.remote_id,
                 notification_type__in=["follow", "follow_request", "follow_accepted"],
-        ).delete()
+            ).delete()
 
         return JsonResponse({"detail": "Unfollow received."}, status=200)
+
     if activity_type in ["entry", "post"]:
         post = _store_remote_post(payload, target)
         if not post:
@@ -1200,6 +1349,50 @@ def api_author_inbox(request, pk):
         return JsonResponse({"detail": "Entry received."}, status=201)
 
     return JsonResponse({"detail": "Unsupported activity type."}, status=400)
+
+
+def _fetch_remote_authors_from_node(node, query, auth):
+    """
+    Try multiple endpoint patterns and response formats to fetch authors
+    from a remote node. Returns a list of raw author dicts.
+    """
+    candidate_urls = _candidate_remote_author_search_urls(node, query)
+
+    # Try with auth first, then without (some groups serve authors publicly)
+    auth_candidates = [auth, None] if auth else [None]
+
+    for url in candidate_urls:
+        for candidate_auth in auth_candidates:
+            try:
+                resp = requests.get(
+                    url,
+                    auth=candidate_auth,
+                    timeout=8,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.status_code != 200:
+                    continue
+
+                # Some servers return HTML instead of JSON
+                content_type = resp.headers.get("content-type", "")
+                if "html" in content_type and "json" not in content_type:
+                    continue
+
+                try:
+                    data = resp.json()
+                except Exception:
+                    continue
+
+                items = _extract_author_items_flexible(data)
+                if items:
+                    return items
+
+            except Exception:
+                continue
+
+    return []
+
+
 @login_required
 def author_search(request):
     query = request.GET.get("q", "").strip()
@@ -1208,7 +1401,6 @@ def author_search(request):
 
     if query:
         # LOCAL
-        # Only list true local accounts here; remote proxy rows are merged below.
         local_users = Author.objects.filter(
             Q(username__icontains=query) | Q(displayName__icontains=query)
         ).filter(is_remote=False).exclude(id=request.user.id)
@@ -1231,7 +1423,7 @@ def author_search(request):
                     profile_image = ""
 
             results.append({
-                "id": f"{settings.SITE_URL}/api/authors/{user.id}",  
+                "id": f"{settings.SITE_URL}/api/authors/{user.id}",
                 "displayName": user.displayName or user.username,
                 "username": user.username,
                 "host": settings.SITE_URL,
@@ -1241,18 +1433,14 @@ def author_search(request):
                 "profile_uuid": str(user.id),
             })
 
-        # REMOTE
+        # REMOTE — query every configured remote node
         for node in get_configured_nodes(exclude_local=True):
-            items = []
-            for url in _candidate_remote_author_search_urls(node, query):
-                data = _try_get_json(url, auth=_auth_for_node(node))
-                if not data:
-                    # Some peers expose public author listing without basic auth.
-                    data = _try_get_json(url, auth=None)
-                extracted = _extract_author_items(data)
-                if extracted:
-                    items = extracted
-                    break
+            node = (node or "").rstrip("/")
+            if not node:
+                continue
+
+            auth = _auth_for_node(node)
+            items = _fetch_remote_authors_from_node(node, query, auth)
 
             for author in items:
                 normalized = _normalize_remote_author_card(author, node)
@@ -1260,6 +1448,7 @@ def author_search(request):
                 if not author_id or author_id in seen_ids:
                     continue
 
+                # Client-side filter: check if the search query matches the name
                 haystack = f"{normalized['displayName']} {normalized['username']}".lower()
                 if query.lower() not in haystack:
                     continue
@@ -1277,4 +1466,4 @@ def author_search(request):
         "results": results,
     }
 
-    return render(request, "authors/search_results.html", context)
+    return render(request, "authors/search_results.html", context) 

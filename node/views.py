@@ -105,13 +105,29 @@ def _auth_for_node(node_url):
     return get_node_auth(node_url)
 
 
+def _fallback_username(entry):
+    username = (entry.get("username") or "").strip()
+    if username:
+        return username
+
+    display_name = (entry.get("displayName") or "").strip()
+    if display_name:
+        return display_name
+
+    remote_id = str(entry.get("id") or "").rstrip("/")
+    if remote_id:
+        return remote_id.rsplit("/", 1)[-1]
+
+    return ""
+
+
 def _federated_authors():
     local_site = getattr(settings, "SITE_URL", "").rstrip("/")
     items = []
     seen = set()
 
-    # Local authors first.
-    for author in Author.objects.all().order_by("username"):
+    # Local authors first (exclude remote placeholders cached in local DB).
+    for author in Author.objects.filter(is_remote=False).order_by("username"):
         items.append({
             "id": str(author.id),
             "username": author.username,
@@ -129,45 +145,82 @@ def _federated_authors():
         if not node or node == local_site:
             continue
 
-        try:
-            response = requests.get(
-                f"{node}/api/authors/?page=1&size=200&_federated=1",
-                auth=_auth_for_node(node),
-                timeout=5,
-                headers={"Accept": "application/json"},
-            )
-            if response.status_code != 200:
-                continue
-            payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-            for entry in payload.get("items", []):
-                username = (entry.get("username") or "").strip()
-                if not username:
+        probe_urls = [
+            f"{node}/api/authors/?page=1&size=200&_federated=1",
+            f"{node}/api/authors/?page=1&size=200",
+            f"{node}/api/authors/",
+        ]
+
+        auth = _auth_for_node(node)
+        auth_candidates = [auth, None] if auth else [None]
+
+        for probe in probe_urls:
+            fetched = False
+            for probe_auth in auth_candidates:
+                try:
+                    response = requests.get(
+                        probe,
+                        auth=probe_auth,
+                        timeout=8,
+                        headers={"Accept": "application/json"},
+                    )
+                    if response.status_code != 200:
+                        continue
+
+                    if not response.headers.get("content-type", "").startswith("application/json"):
+                        continue
+
+                    payload = response.json() or {}
+                    if isinstance(payload, dict):
+                        entries = payload.get("items")
+                        if not isinstance(entries, list):
+                            entries = payload.get("src", [])
+                    elif isinstance(payload, list):
+                        entries = payload
+                    else:
+                        entries = []
+                    if not isinstance(entries, list):
+                        continue
+
+                    for entry in entries:
+                        if not isinstance(entry, dict):
+                            continue
+
+                        username = _fallback_username(entry)
+                        if not username:
+                            continue
+
+                        key = (node, username.lower())
+                        if key in seen:
+                            continue
+                        seen.add(key)
+
+                        remote_id = str(entry.get("id") or "").rstrip("/")
+                        profile_url = remote_id
+                        if remote_id.endswith("/api/authors"):
+                            profile_url = remote_id.replace("/authors/api/authors", "/authors")
+                        elif "/authors/api/authors/" in remote_id:
+                            profile_url = remote_id.replace("/authors/api/authors/", "/authors/")
+
+                        items.append({
+                            "id": remote_id,
+                            "username": username,
+                            "display_name": entry.get("displayName") or username,
+                            # Default to approved for remote display if field absent.
+                            "is_approved": bool(entry.get("is_approved", True)),
+                            "is_remote": True,
+                            "host": entry.get("host") or node,
+                            "profile_url": profile_url,
+                        })
+
+                    fetched = True
+                    break
+                except Exception:
                     continue
 
-                key = (node, username.lower())
-                if key in seen:
-                    continue
-                seen.add(key)
-
-                remote_id = str(entry.get("id") or "").rstrip("/")
-                profile_url = remote_id
-                if remote_id.endswith("/api/authors"):
-                    profile_url = remote_id.replace("/authors/api/authors", "/authors")
-                elif "/authors/api/authors/" in remote_id:
-                    profile_url = remote_id.replace("/authors/api/authors/", "/authors/")
-
-                items.append({
-                    "id": remote_id,
-                    "username": username,
-                    "display_name": entry.get("displayName") or username,
-                    # Default to approved for remote display if field absent.
-                    "is_approved": bool(entry.get("is_approved", True)),
-                    "is_remote": True,
-                    "host": entry.get("host") or node,
-                    "profile_url": profile_url,
-                })
-        except Exception:
-            continue
+            # Stop after first successful JSON collection for this node.
+            if fetched:
+                break
 
     return items
 
