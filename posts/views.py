@@ -102,14 +102,7 @@ def _candidate_post_endpoints(node_url):
     base = node_url.rstrip("/")
     return [
         f"{base}/api/entries/public/",
-<<<<<<< HEAD
         f"{base}/api/entries/",
-=======
-        f"{base}/api/public-entries/",
-        f"{base}/api/public-posts/",
-        f"{base}/api/entries/",
-        f"{base}/api/posts/",
->>>>>>> 8cd737977cd0d0b783a5437e06f42faa291d64cc
     ]
 
 def _extract_collection_items(data):
@@ -1362,7 +1355,6 @@ def stream(request):
                 p.comment_count = len(pending_for_post)
                 p.like_count = 0
                 p.liked_by_me = str(p.remote_id) in liked_remote_posts
-<<<<<<< HEAD
         else:
             # ---- LOCAL posts: set counts, comments, and like state ----
             p.like_count = p.likes.count()
@@ -1376,8 +1368,6 @@ def stream(request):
                 c.like_count = c.likes.count()
                 c.liked_by_me = c.id in comment_liked_ids
             p.comment_list = visible_comments
-=======
->>>>>>> 8cd737977cd0d0b783a5437e06f42faa291d64cc
 
     # Remove posts that failed the visibility/access check
     all_posts = [p for p in all_posts if not getattr(p, '_hide_from_stream', False)]
@@ -1743,20 +1733,10 @@ def _candidate_node_inbox_urls(node_base):
     if not base:
         return []
     return [
-<<<<<<< HEAD
         f"{base}/api/inbox",
         f"{base}/inbox",
     ]
 
-=======
-        f"{base}/api/inbox/",
-        f"{base}/api/inbox",
-        f"{base}/inbox/",
-        f"{base}/inbox",
-    ]
-
-
->>>>>>> 8cd737977cd0d0b783a5437e06f42faa291d64cc
 def _push_post_to_remote_recipients(post):
     """
     Push a created/updated post to remote recipients.
@@ -1932,10 +1912,6 @@ def _push_deleted_post_to_remote_recipients(post):
         elif node_base:
             # fallback guesses for node-level inbox-ish endpoints if no author inbox known
             candidate_urls.extend(_post_url_variants(f"{node_base}/api/inbox"))
-<<<<<<< HEAD
-=======
-            candidate_urls.extend(_post_url_variants(f"{node_base}/api/inbox/"))
->>>>>>> 8cd737977cd0d0b783a5437e06f42faa291d64cc
 
         for url in candidate_urls:
             for payload in (delete_payload, entry_payload):

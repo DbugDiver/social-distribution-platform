@@ -730,31 +730,7 @@ def stream_api(request):
         base_path=base_path,
         collection_type="entries",
         queryset=posts,
-<<<<<<< HEAD
         serializer=_serialize_entry,
-=======
-        serializer=lambda post, req: {
-            "type": "entry",
-            "id": (
-                (post.remote_id or "")
-                if post.is_remote
-                else req.build_absolute_uri(
-                    reverse(
-                        "posts:api-entry-detail",
-                        kwargs={"author_id": post.author_id, "post_id": post.id},
-                    )
-                )
-            ),
-            "title": post.title,
-            "contentType": post.content_type,
-            "content": post.content,
-            "image": (post.remote_image if post.is_remote else (req.build_absolute_uri(post.image.url) if post.image else "")),
-            "author": _remote_author_obj_from_post(post) if post.is_remote else _author_obj(post.author, req),
-            "visibility": post.visibility,
-            "published": (post.published or post.created).isoformat(),
-            "updated": post.updated.isoformat(),
-        },
->>>>>>> 8cd737977cd0d0b783a5437e06f42faa291d64cc
     )
     return JsonResponse(payload, status=200)
 
@@ -784,29 +760,7 @@ def author_entries_api(request, author_id):
         base_path=base_path,
         collection_type="entries",
         queryset=posts,
-<<<<<<< HEAD
         serializer=_serialize_entry,
-=======
-        serializer=lambda post, req: {
-            "type": "entry",
-            "id": req.build_absolute_uri(
-                reverse(
-                    "posts:api-entry-detail",
-                    kwargs={
-                        "author_id": post.author_id,
-                        "post_id": post.id
-                    },
-                )
-            ),
-            "title": post.title,
-            "contentType": post.content_type,
-            "content": post.content,
-            "author": _author_obj(post.author, req),
-            "visibility": post.visibility,
-            "published": (post.published or post.created).isoformat(),
-            "updated": post.updated.isoformat(),
-        },
->>>>>>> 8cd737977cd0d0b783a5437e06f42faa291d64cc
     )
 
     return JsonResponse(payload, status=200)
@@ -975,60 +929,7 @@ def public_posts_api(request):
         .order_by("-created")
     )
 
-<<<<<<< HEAD
     items = [_serialize_entry(post, request) for post in posts]
-=======
-    items = []
-    for post in posts:
-        author_obj = _author_obj(post.author, request)
-
-        comments_url = request.build_absolute_uri(
-            reverse(
-                "posts:api-public-entry-comments",
-                kwargs={"author_id": post.author_id, "post_id": post.id},
-            )
-        )
-        likes_url = request.build_absolute_uri(
-            reverse(
-                "posts:api-public-entry-likes",
-                kwargs={"author_id": post.author_id, "post_id": post.id},
-            )
-        )
-
-        items.append({
-            "type": "entry",
-            "id": request.build_absolute_uri(
-                reverse(
-                    "posts:api-entry-detail",
-                    kwargs={"author_id": post.author_id, "post_id": post.id},
-                )
-            ),
-            "title": post.title,
-            "contentType": post.content_type,
-            "content": post.content,
-            "image": request.build_absolute_uri(post.image.url) if post.image else "",
-            "author": author_obj,
-            "visibility": post.visibility,
-            "published": (post.published or post.created).isoformat(),
-            "updated": post.updated.isoformat(),
-            "comments": {
-                "type": "comments",
-                "id": comments_url,
-                "count": post.comments.count(),
-            },
-            "likes": {
-                "type": "likes",
-                "id": likes_url,
-                "count": post.likes.count(),
-            },
-        })
-
-    return JsonResponse({
-        "type": "entries",
-        "count": len(items),
-        "src": items
-    }, status=200)
->>>>>>> 8cd737977cd0d0b783a5437e06f42faa291d64cc
 
     return JsonResponse({
         "type": "entries",
