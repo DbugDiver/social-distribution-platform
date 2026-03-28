@@ -131,7 +131,7 @@ def _federated_authors():
 
         try:
             response = requests.get(
-                f"{node}/authors/api/authors/?page=1&size=200&_federated=1",
+                f"{node}/api/authors/?page=1&size=200&_federated=1",
                 auth=_auth_for_node(node),
                 timeout=5,
                 headers={"Accept": "application/json"},
@@ -151,7 +151,7 @@ def _federated_authors():
 
                 remote_id = str(entry.get("id") or "").rstrip("/")
                 profile_url = remote_id
-                if remote_id.endswith("/authors/api/authors"):
+                if remote_id.endswith("/api/authors"):
                     profile_url = remote_id.replace("/authors/api/authors", "/authors")
                 elif "/authors/api/authors/" in remote_id:
                     profile_url = remote_id.replace("/authors/api/authors/", "/authors/")

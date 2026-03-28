@@ -76,11 +76,21 @@ def author_profile(request, pk):
     is_following = False
     follow_status = None
 
+    def _follow_relation(follower_author, following_author):
+        if not follower_author or not following_author:
+            return None
+
+        queryset = Follower.objects.filter(follower=follower_author)
+        if following_author.is_remote and following_author.remote_id:
+            queryset = queryset.filter(
+                Q(following=following_author) | Q(following__remote_id=following_author.remote_id)
+            )
+        else:
+            queryset = queryset.filter(following=following_author)
+        return queryset.first()
+
     if request.user != author:
-        follow = Follower.objects.filter(
-            follower=request.user,
-            following=author
-        ).first()
+        follow = _follow_relation(request.user, author)
 
         if follow:
             follow_status = follow.status
@@ -89,14 +99,30 @@ def author_profile(request, pk):
     # 1. Determine if the person viewing is a mutual friend of the profile owner
     is_friend = False
     if request.user != author:
-        is_friend = (
-            Follower.objects.filter(
-                follower=request.user, following=author, status="accepted"
-            ).exists()
-            and Follower.objects.filter(
-                follower=author, following=request.user, status="accepted"
-            ).exists()
-        )
+        if author.is_remote and author.remote_id:
+            is_friend = (
+                Follower.objects.filter(
+                    follower=request.user,
+                    status="accepted",
+                )
+                .filter(Q(following=author) | Q(following__remote_id=author.remote_id))
+                .exists()
+                and Follower.objects.filter(
+                    following=request.user,
+                    status="accepted",
+                )
+                .filter(Q(follower=author) | Q(follower__remote_id=author.remote_id))
+                .exists()
+            )
+        else:
+            is_friend = (
+                Follower.objects.filter(
+                    follower=request.user, following=author, status="accepted"
+                ).exists()
+                and Follower.objects.filter(
+                    follower=author, following=request.user, status="accepted"
+                ).exists()
+            )
 
     # 2. Fetch the correct posts based on who is looking.
     if author.is_remote:
@@ -185,7 +211,7 @@ def author_profile(request, pk):
                 p.liked_by_me = any(
                     _normalize_author_id(l.get("author_id")) in {
                         _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
-                        _normalize_author_id(f"{_site_url()}/authors/api/authors/{request.user.id}"),
+                        _normalize_author_id(f"{_site_url()}/api/authors/{request.user.id}"),
                     }
                     for l in remote_likes
                 )
@@ -465,10 +491,10 @@ def send_a_follow_request(request):
             "type": "follow",
             "actor": {
                 "type": "author",
-                "id": f"{settings.SITE_URL}/authors/api/authors/{author.id}",
+                "id": f"{settings.SITE_URL}/api/authors/{author.id}",
                 "displayName": author.displayName or author.username,
                 "host": settings.SITE_URL,
-                "url": f"{settings.SITE_URL}/authors/api/authors/{author.id}",
+                "url": f"{settings.SITE_URL}/api/authors/{author.id}",
             },
             "object": author_url
         }
@@ -792,9 +818,9 @@ def _candidate_remote_author_search_urls(node, query):
     q = quote(query)
     base = node.rstrip("/")
     return [
-        f"{base}/authors/api/authors/?search={q}",
-        f"{base}/authors/api/authors/?page=1&size=200&_federated=1",
-        f"{base}/authors/api/authors/",
+        f"{base}/api/authors/?search={q}",
+        f"{base}/api/authors/?page=1&size=200&_federated=1",
+        f"{base}/api/authors/",
     ]
 
 
@@ -927,7 +953,7 @@ def _refresh_remote_authors(authors):
 
 def _local_author_payload(author):
     base = settings.SITE_URL.rstrip("/")
-    author_url = f"{base}/authors/api/authors/{author.id}"
+    author_url = f"{base}/api/authors/{author.id}"
     return {
         "type": "author",
         "id": author_url,
@@ -1163,7 +1189,7 @@ def api_author_inbox(request, pk):
                 recipient=target,
                 sender__remote_id=remote_follower.remote_id,
                 notification_type__in=["follow", "follow_request", "follow_accepted"],
-            ).delete()
+        ).delete()
 
         return JsonResponse({"detail": "Unfollow received."}, status=200)
     if activity_type in ["entry", "post"]:
@@ -1188,7 +1214,7 @@ def author_search(request):
         ).filter(is_remote=False).exclude(id=request.user.id)
 
         for user in local_users:
-            author_id = f"{settings.SITE_URL}/authors/api/authors/{user.id}"
+            author_id = f"{settings.SITE_URL}/api/authors/{user.id}"
             if author_id in seen_ids:
                 continue
             seen_ids.add(author_id)
@@ -1205,7 +1231,7 @@ def author_search(request):
                     profile_image = ""
 
             results.append({
-                "id": f"{settings.SITE_URL}/authors/api/authors/{user.id}",  
+                "id": f"{settings.SITE_URL}/api/authors/{user.id}",  
                 "displayName": user.displayName or user.username,
                 "username": user.username,
                 "host": settings.SITE_URL,

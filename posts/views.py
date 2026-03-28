@@ -175,7 +175,7 @@ def _remote_like_matches_user(raw_like, user):
     }
     local_ids = {
         _normalize_author_id(f"{_site_url()}/authors/{user.id}"),
-        _normalize_author_id(f"{_site_url()}/authors/api/authors/{user.id}"),
+        _normalize_author_id(f"{_site_url()}/api/authors/{user.id}"),
     }
     return bool(candidate_ids.intersection(local_ids))
 
@@ -184,7 +184,7 @@ def _normalized_local_author_ids(user):
     base = _site_url()
     return {
         _normalize_author_id(f"{base}/authors/{user.id}"),
-        _normalize_author_id(f"{base}/authors/api/authors/{user.id}"),
+        _normalize_author_id(f"{base}/api/authors/{user.id}"),
     }
 
 
@@ -473,6 +473,34 @@ def _url_variants(url):
             deduped.append(value)
             seen.add(value)
     return deduped
+
+
+def _author_url_variants(url):
+    raw = (url or "").strip().rstrip("/")
+    if not raw:
+        return set()
+
+    variants = set(_url_variants(raw))
+
+    if "/authors/api/authors/" in raw:
+        html_variant = raw.replace("/authors/api/authors/", "/authors/")
+        api_variant = raw.replace("/authors/api/authors/", "/api/authors/")
+        variants.update(_url_variants(html_variant))
+        variants.update(_url_variants(api_variant))
+
+    if "/api/authors/" in raw:
+        html_variant = raw.replace("/api/authors/", "/authors/")
+        nested_variant = raw.replace("/api/authors/", "/authors/api/authors/")
+        variants.update(_url_variants(html_variant))
+        variants.update(_url_variants(nested_variant))
+
+    if "/authors/" in raw and "/authors/api/authors/" not in raw:
+        api_variant = raw.replace("/authors/", "/api/authors/")
+        nested_variant = raw.replace("/authors/", "/authors/api/authors/")
+        variants.update(_url_variants(api_variant))
+        variants.update(_url_variants(nested_variant))
+
+    return variants
 
 
 def _post_url_variants(url):
@@ -887,18 +915,37 @@ def stream(request):
     except Exception:
         pass
 
-    following_ids = Follower.objects.filter(
+    following_ids = set(Follower.objects.filter(
         follower=user,
         status="accepted",
-    ).values_list("following_id", flat=True)
+    ).values_list("following_id", flat=True))
 
-    followed_remote_author_urls = set(
+    follower_ids = set(Follower.objects.filter(
+        following=user,
+        status="accepted",
+    ).values_list("follower_id", flat=True))
+
+    friend_ids = following_ids.intersection(follower_ids)
+
+    remote_following_author_urls = set()
+    remote_friend_author_urls = set()
+
+    for remote_id in (
         Author.objects.filter(id__in=following_ids, is_remote=True)
         .exclude(remote_id__isnull=True)
         .exclude(remote_id="")
         .values_list("remote_id", flat=True)
-    )
+    ):
+        remote_following_author_urls.update(_author_url_variants(remote_id))
 
+    for remote_id in (
+        Author.objects.filter(id__in=friend_ids, is_remote=True)
+        .exclude(remote_id__isnull=True)
+        .exclude(remote_id="")
+        .values_list("remote_id", flat=True)
+    ):
+        remote_friend_author_urls.update(_author_url_variants(remote_id))
+    
     all_posts = list(
         Post.objects.filter(deleted=False)
         .filter(
@@ -907,13 +954,24 @@ def stream(request):
             | Q(
                 is_remote=False,
                 author_id__in=following_ids,
-                visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
+                visibility=Post.Visibility.UNLISTED,
+            )
+            | Q(
+                is_remote=False,
+                author_id__in=friend_ids,
+                visibility=Post.Visibility.FRIENDS,
             )
             | Q(is_remote=True, visibility=Post.Visibility.PUBLIC, node_url__in=allowed_remote_nodes)
             | Q(
                 is_remote=True,
-                remote_author_url__in=followed_remote_author_urls,
-                visibility__in=[Post.Visibility.FRIENDS, Post.Visibility.UNLISTED],
+                remote_author_url__in=remote_following_author_urls,
+                visibility=Post.Visibility.UNLISTED,
+                node_url__in=allowed_remote_nodes,
+            )
+            | Q(
+                is_remote=True,
+                remote_author_url__in=remote_friend_author_urls,
+                visibility=Post.Visibility.FRIENDS,
                 node_url__in=allowed_remote_nodes,
             )
         )
@@ -1016,7 +1074,7 @@ def detail(request, post_id):
         remote_likes = _fetch_remote_likes(post)
         post_liked_by_me = any(_normalize_author_id(l.get("author_id")) in {
             _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
-            _normalize_author_id(f"{_site_url()}/authors/api/authors/{request.user.id}"),
+            _normalize_author_id(f"{_site_url()}/api/authors/{request.user.id}"),
         } for l in remote_likes)
 
         return render(
@@ -1238,7 +1296,7 @@ def _remote_api_author_base(author_obj):
         return remote_id
 
     if "/authors/" in remote_id:
-        return remote_id.replace("/authors/", "/authors/api/authors/")
+        return remote_id.replace("/authors/", "/api/authors/")
 
     return remote_id
 
@@ -1343,6 +1401,7 @@ def _push_post_to_remote_recipients(post):
 
     for remote_author in recipients:
         _send_post_to_remote_inbox(remote_author, post)
+
 
 def _push_deleted_post_to_remote_recipients(post):
     following_ids = set(
@@ -1523,25 +1582,6 @@ def followers_feed(request):
 
     friend_ids = following_ids.intersection(follower_ids)
 
-    def _url_variants(url):
-        if not url:
-            return set()
-
-        u = str(url).strip().rstrip("/")
-        variants = {u, u + "/"}
-
-        if "/authors/api/authors/" in u:
-            html_ver = u.replace("/authors/api/authors/", "/authors/")
-            variants.add(html_ver)
-            variants.add(html_ver + "/")
-
-        if "/authors/" in u and "/authors/api/authors/" not in u:
-            api_ver = u.replace("/authors/", "/authors/api/authors/")
-            variants.add(api_ver)
-            variants.add(api_ver + "/")
-
-        return variants
-
     remote_friend_urls = set()
     remote_following_urls = set()
 
@@ -1551,7 +1591,7 @@ def followers_feed(request):
         .exclude(remote_id="")
         .values_list("remote_id", flat=True)
     ):
-        remote_friend_urls.update(_url_variants(remote_id))
+        remote_friend_urls.update(_author_url_variants(remote_id))
 
     for remote_id in (
         Author.objects.filter(id__in=following_ids, is_remote=True)
@@ -1559,7 +1599,7 @@ def followers_feed(request):
         .exclude(remote_id="")
         .values_list("remote_id", flat=True)
     ):
-        remote_following_urls.update(_url_variants(remote_id))
+        remote_following_urls.update(_author_url_variants(remote_id))
 
     posts = Post.objects.filter(deleted=False).filter(
         Q(author_id__in=following_ids, visibility=Post.Visibility.UNLISTED, is_remote=False)
