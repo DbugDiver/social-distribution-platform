@@ -543,15 +543,22 @@ def send_a_follow_request(request):
 
         data = {
             "type": "follow",
-            "actor": {
+            "actor": _local_author_payload(author),
+            "object": {
+                "type": "author",
+                "id": author_url
+            }
+            
+        }
+        '''
+        "actor": {
                 "type": "author",
                 "id": f"{settings.SITE_URL}/api/authors/{author.id}",
                 "displayName": author.displayName or author.username,
                 "host": settings.SITE_URL,
                 "url": f"{settings.SITE_URL}/api/authors/{author.id}",
             },
-            "object": author_url
-        }
+        '''
 
         inbox_url = author_url.rstrip("/") + "/inbox/"
         node_url = _host_from_author_url(author_url)
