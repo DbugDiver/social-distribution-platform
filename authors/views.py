@@ -567,7 +567,7 @@ def send_a_follow_request(request):
             },
         '''
 
-        base_inbox = author_url.rstrip("/") + "/inbox"
+        base_inbox = author_url.rstrip("/") + "/inbox/"
         node_url = _host_from_author_url(author_url)
         auth = _auth_for_node(node_url) if node_url else None
 
@@ -1153,7 +1153,7 @@ def _local_author_payload(author):
 
 
 def _post_remote_inbox(author_url, payload):
-    base_inbox = author_url.rstrip("/") + "/inbox"
+    base_inbox = author_url.rstrip("/") + "/inbox/"
     node_url = _host_from_author_url(author_url)
     auth = _auth_for_node(node_url) if node_url else None
 
