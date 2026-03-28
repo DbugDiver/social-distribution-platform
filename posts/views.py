@@ -867,6 +867,49 @@ def _candidate_remote_inbox_urls(post):
             seen.add(value)
     return deduped
 
+
+def _candidate_remote_object_ids(post):
+    remote_id = str(post.remote_id or "").strip().rstrip("/")
+    if not remote_id:
+        return []
+
+    candidates = {
+        remote_id,
+        remote_id + "/",
+    }
+
+    if "/authors/api/authors/" in remote_id:
+        candidates.add(remote_id.replace("/authors/api/authors/", "/authors/"))
+        candidates.add(remote_id.replace("/authors/api/authors/", "/api/authors/"))
+    elif "/api/authors/" in remote_id:
+        candidates.add(remote_id.replace("/api/authors/", "/authors/"))
+        candidates.add(remote_id.replace("/api/authors/", "/authors/api/authors/"))
+        candidates.add(remote_id.replace("/api/authors/", "/api/public/authors/"))
+    elif "/authors/" in remote_id:
+        candidates.add(remote_id.replace("/authors/", "/api/authors/"))
+        candidates.add(remote_id.replace("/authors/", "/authors/api/authors/"))
+        candidates.add(remote_id.replace("/authors/", "/api/public/authors/"))
+
+    if "/entries/" in remote_id:
+        candidates.add(remote_id.replace("/entries/", "/posts/"))
+    if "/posts/" in remote_id:
+        candidates.add(remote_id.replace("/posts/", "/entries/"))
+
+    for marker in ["/entries/", "/posts/"]:
+        if marker in remote_id:
+            post_tail = remote_id.split(marker)[-1].strip("/")
+            if post_tail:
+                candidates.add(post_tail)
+
+    deduped = []
+    seen = set()
+    for value in candidates:
+        v = (value or "").strip()
+        if v and v not in seen:
+            deduped.append(v)
+            seen.add(v)
+    return deduped
+
 def _fetch_remote_comments(post, viewer=None, include_like_state=True):
     data = None
     working_url = None
@@ -1065,25 +1108,23 @@ def _send_remote_comment(user, post, text):
     comment_id = str(uuid.uuid4())
     base_url = _site_url()
 
-    payload = {
-        "type": "comment",
-        "id": f"{base_url}/api/authors/{user.id}/commented/{comment_id}",
-        "author": _local_author_payload(user),
-        "comment": text,
-        "content": text,
-        "contentType": "text/plain",
-        "object": str(post.remote_id or ""),
-        "entry": str(post.remote_id or ""),
-        "published": timezone.now().isoformat(),
-    }
-
-    payload_variants = [
-        payload,
-        {
-            **payload,
-            "type": "Comment",
-        },
-    ]
+    payload_variants = []
+    for object_id in _candidate_remote_object_ids(post):
+        base_payload = {
+            "type": "comment",
+            "id": f"{base_url}/api/authors/{user.id}/commented/{comment_id}",
+            "author": _local_author_payload(user),
+            "comment": text,
+            "content": text,
+            "contentType": "text/plain",
+            "object": object_id,
+            "entry": object_id,
+            "published": timezone.now().isoformat(),
+        }
+        payload_variants.append(base_payload)
+        payload_variants.append({**base_payload, "type": "Comment"})
+        payload_variants.append({**base_payload, "type": "comments"})
+        payload_variants.append({**base_payload, "type": "Comments"})
 
     for comments_url in _candidate_remote_comments_urls(post):
         for candidate_payload in payload_variants:

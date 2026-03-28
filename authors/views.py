@@ -1003,6 +1003,42 @@ def _remote_username_seed(remote_id):
     return f"remote_{str(abs(hash(remote_id)))[:20]}"
 
 
+def _canonical_remote_author_id(remote_id):
+    raw = (remote_id or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    return (
+        raw
+        .replace("/authors/api/authors/", "/authors/")
+        .replace("/api/authors/", "/authors/")
+    )
+
+
+def _remote_author_id_variants(remote_id):
+    canonical = _canonical_remote_author_id(remote_id)
+    if not canonical:
+        return []
+
+    variants = {
+        canonical,
+        canonical + "/",
+    }
+
+    if "/authors/" in canonical:
+        variants.add(canonical.replace("/authors/", "/api/authors/"))
+        variants.add(canonical.replace("/authors/", "/api/authors/") + "/")
+        variants.add(canonical.replace("/authors/", "/authors/api/authors/"))
+        variants.add(canonical.replace("/authors/", "/authors/api/authors/") + "/")
+
+    deduped = []
+    seen = set()
+    for value in variants:
+        if value and value not in seen:
+            deduped.append(value)
+            seen.add(value)
+    return deduped
+
+
 def _upsert_remote_author(author_payload):
     if not isinstance(author_payload, dict):
         return None
@@ -1011,10 +1047,18 @@ def _upsert_remote_author(author_payload):
     if not remote_id:
         return None
 
+    canonical_remote_id = _canonical_remote_author_id(remote_id)
+    remote_id_candidates = _remote_author_id_variants(remote_id)
+
     # ALWAYS look up by remote_id first - this is the canonical identifier
-    remote_author = Author.objects.filter(remote_id=remote_id).first()
+    remote_author = (
+        Author.objects
+        .filter(remote_id__in=remote_id_candidates)
+        .order_by("id")
+        .first()
+    )
     if remote_author:
-        host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
+        host = (author_payload.get("host") or _host_from_author_url(canonical_remote_id) or "").rstrip("/")
         display_name = (author_payload.get("displayName") or "").strip()
         if not display_name:
             display_name = (author_payload.get("username") or "").strip()
@@ -1026,30 +1070,33 @@ def _upsert_remote_author(author_payload):
         if host and remote_author.host != host:
             remote_author.host = host
             changed = True
+        if canonical_remote_id and remote_author.remote_id != canonical_remote_id:
+            remote_author.remote_id = canonical_remote_id
+            changed = True
         if changed:
             try:
-                remote_author.save(update_fields=["displayName", "host"])
+                remote_author.save(update_fields=["displayName", "host", "remote_id"])
             except Exception:
                 # If save fails, it's OK - we already have the record
                 pass
         return remote_author
 
     # New remote author - create with deduplicated username
-    host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
+    host = (author_payload.get("host") or _host_from_author_url(canonical_remote_id) or "").rstrip("/")
     display_name = (author_payload.get("displayName") or "").strip()
     if not display_name:
         display_name = (author_payload.get("username") or "").strip()
 
     # Fallback: resolve from remote author endpoint when payload omits names.
     if not display_name:
-        remote_doc = _fetch_remote_author_doc(remote_id)
+        remote_doc = _fetch_remote_author_doc(canonical_remote_id)
         if isinstance(remote_doc, dict):
             display_name = (remote_doc.get("displayName") or remote_doc.get("username") or "").strip()
 
     if not display_name:
         display_name = "Remote Author"
 
-    username = _remote_username_seed(remote_id)
+    username = _remote_username_seed(canonical_remote_id)
     # Ensure username is unique
     original_username = username
     counter = 1
@@ -1063,7 +1110,7 @@ def _upsert_remote_author(author_payload):
             displayName=display_name,
             host=host,
             is_remote=True,
-            remote_id=remote_id,
+            remote_id=canonical_remote_id,
             is_approved=True,
         )
         remote_author.set_unusable_password()
@@ -1071,7 +1118,12 @@ def _upsert_remote_author(author_payload):
         return remote_author
     except Exception:
         # Race condition or constraint violation - try to fetch again
-        return Author.objects.filter(remote_id=remote_id).first()
+        return (
+            Author.objects
+            .filter(remote_id__in=remote_id_candidates)
+            .order_by("id")
+            .first()
+        )
 
 
 def _refresh_remote_author(author):
@@ -1642,9 +1694,10 @@ def author_search(request):
 
         for user in local_users:
             author_id = f"{settings.SITE_URL}/api/authors/{user.id}"
-            if author_id in seen_ids:
+            canonical_author_id = _canonical_remote_author_id(author_id)
+            if canonical_author_id in seen_ids:
                 continue
-            seen_ids.add(author_id)
+            seen_ids.add(canonical_author_id)
 
             profile_image = ""
             if getattr(user, "profileImage", None):
@@ -1680,7 +1733,9 @@ def author_search(request):
             for author in items:
                 normalized = _normalize_remote_author_card(author, node)
                 author_id = normalized["id"]
-                if not author_id or author_id in seen_ids:
+                canonical_author_id = _canonical_remote_author_id(author_id)
+
+                if not canonical_author_id or canonical_author_id in seen_ids:
                     continue
 
                 haystack = f"{normalized['displayName']} {normalized['username']}".lower()
@@ -1691,7 +1746,7 @@ def author_search(request):
                 if remote_proxy:
                     normalized["profile_uuid"] = str(remote_proxy.id)
 
-                seen_ids.add(author_id)
+                seen_ids.add(canonical_author_id)
                 results.append(normalized)
 
     context = {

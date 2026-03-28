@@ -29,6 +29,9 @@
 
                     <div class="timestamp">
                         @{{ author.username|default:author.displayName }}
+                        {% if author.is_remote %}
+                            · remote · {{ author.host }}
+                        {% endif %}
                     </div>
 
                     <!-- ✅ ONE FOLLOW BUTTON -->
