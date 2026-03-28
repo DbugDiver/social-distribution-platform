@@ -116,8 +116,16 @@ def author_profile(request, pk):
                 changed_fields.append("github")
             if remote_bio and author.bio != remote_bio:
                 changed_fields.append("bio")
+            
             if changed_fields:
-                author.save(update_fields=changed_fields)
+                try:
+                    author.save(update_fields=changed_fields)
+                except Exception as e:
+                    # If save fails (e.g. duplicate username), log but don't crash
+                    # The current cached values will be displayed instead
+                    import logging
+                    logger = logging.getLogger("socialdistribution")
+                    logger.debug(f"Failed to hydrate author {author.id}: {str(e)}")
 
     is_following = False
     follow_status = None
