@@ -4,7 +4,7 @@ import hashlib
 import re
 from functools import lru_cache
 from urllib.parse import urljoin
-
+from urllib.parse import quote
 import markdown as md
 import requests
 import uuid
@@ -101,7 +101,7 @@ def _auth_for_node(node_url):
 def _candidate_post_endpoints(node_url):
     base = node_url.rstrip("/")
     return [
-        f"{base}/api/entries/public/",   # ✅ ADD THIS (most important)
+        f"{base}/api/entries/public/",
         f"{base}/api/public-entries/",
         f"{base}/api/public-posts/",
         f"{base}/api/entries/",
@@ -313,6 +313,9 @@ def _normalize_remote_post(raw, node_url):
     if remote_author_image.startswith("/") and node_url:
         remote_author_image = f"{node_url.rstrip('/')}{remote_author_image}"
 
+    # FIX (Change 4): normalize remote_author_url so URL-variant matching works correctly
+    raw_author_url = author.get("id") or author.get("url") or ""
+
     return {
         "remote_id": str(remote_post_id).strip() if remote_post_id else "",
         "title": raw.get("title") or raw.get("description") or "",
@@ -321,7 +324,7 @@ def _normalize_remote_post(raw, node_url):
         "visibility": _normalize_visibility_value(raw.get("visibility")),
         "published": raw.get("published") or raw.get("created") or raw.get("updated"),
         "node_url": node_url.rstrip("/"),
-        "remote_author_url": author.get("id") or author.get("url") or "",
+        "remote_author_url": _normalize_author_id(raw_author_url),
         "remote_author_name": author.get("displayName") or author.get("username") or "Remote Author",
         "remote_author_host": author.get("host") or node_url.rstrip("/"),
         "remote_author_image": remote_author_image,
@@ -332,6 +335,7 @@ def _normalize_remote_post(raw, node_url):
         "remote_like_count": remote_like_count,
     }
 
+# FIX (Change 1): always set deleted=False on upsert so FRIENDS->PUBLIC posts come back
 def _upsert_remote_post_cache(data):
     remote_id = data["remote_id"]
     if not remote_id:
@@ -352,12 +356,9 @@ def _upsert_remote_post_cache(data):
             "content_type": data["content_type"][:50],
             "visibility": data["visibility"] if data["visibility"] in Post.Visibility.values else Post.Visibility.PUBLIC,
             "published": _parse_datetime(data["published"]),
+            "deleted": False,  # FIX: always un-delete on upsert
         },
     )
-
-    if created:
-        post.deleted = False
-        post.save(update_fields=["deleted"])
 
     # attach transient attrs used by templates/views
     post.remote_comments_url = data["remote_comments_url"]
@@ -453,11 +454,15 @@ def _fetch_remote_public_posts():
 
             break
 
+        # FIX (Change 2): only mark missing PUBLIC posts as deleted.
+        # FRIENDS/UNLISTED posts won't appear in the public feed, so they
+        # should NOT be treated as deleted just because they're absent here.
         if found_feed:
             Post.objects.filter(
                 is_remote=True,
                 node_url=node,
                 deleted=False,
+                visibility=Post.Visibility.PUBLIC,  # FIX: scope to PUBLIC only
             ).exclude(
                 remote_id__in=seen_remote_ids
             ).update(deleted=True)
@@ -499,6 +504,62 @@ def _get_remote_post_or_404(post):
             return updated
 
     return post
+
+def _check_remote_post_visibility(post):
+    """
+    Probe the remote server for the actual current visibility of a post.
+
+    Returns:
+        Post.Visibility.PUBLIC / FRIENDS / UNLISTED  — if we got a 200 and read the visibility
+        False  — if remote returned 403/401/404 (access denied or deleted)
+        None   — if we couldn't reach the remote at all (timeout, network error)
+    """
+    if not post.is_remote or not post.node_url or not post.remote_id:
+        return None
+
+    auth = _auth_for_node(post.node_url)
+
+    for endpoint in _candidate_single_post_endpoints(post.node_url, post.remote_id):
+        try:
+            resp = requests.get(
+                endpoint,
+                auth=auth,
+                timeout=3,
+                headers={"Accept": "application/json"},
+            )
+
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    if isinstance(data, dict):
+                        vis = _normalize_visibility_value(data.get("visibility"))
+                        # Also update the full cache while we're at it
+                        normalized = _normalize_remote_post(data, post.node_url)
+                        _upsert_remote_post_cache(normalized)
+                        return vis
+                except Exception:
+                    pass
+                # Got 200 but couldn't parse — assume still accessible
+                return post.visibility
+
+            if resp.status_code in [403, 401]:
+                # Access denied — post was restricted
+                Post.objects.filter(id=post.id).update(
+                    visibility=Post.Visibility.FRIENDS
+                )
+                return False
+
+            if resp.status_code == 404:
+                # Post was deleted on remote
+                Post.objects.filter(id=post.id).update(deleted=True)
+                return False
+
+            # Other status (500, etc) — try next endpoint
+        except Exception:
+            continue
+
+    # All endpoints failed
+    return None
 
 def _author_inbox_url(author_url):
     if not author_url:
@@ -585,65 +646,65 @@ def _post_url_variants(url):
             seen.add(value)
     return deduped
 
-
-from urllib.parse import quote
-
 def _candidate_remote_comments_urls(post):
     urls = []
 
     explicit = (getattr(post, "remote_comments_url", "") or "").strip()
     if explicit:
         urls.extend(_url_variants(explicit))
+        if "/api/authors/" in explicit and "/api/public/" not in explicit:
+            public_explicit = explicit.replace("/api/authors/", "/api/public/authors/")
+            urls.extend(_url_variants(public_explicit))
 
     remote_id = str(post.remote_id or "").rstrip("/")
     node_base = str(post.node_url or "").rstrip("/")
 
     if remote_id:
-        if "/api/authors/" in remote_id and "/entries/" in remote_id:
+        # 1. Direct: remote_id + /comments
+        urls.extend(_post_url_variants(remote_id + "/comments"))
+
+        # 2. /api/entries/{uuid}/comments/ (no author prefix)
+        if node_base:
+            for marker in ["/entries/", "/posts/"]:
+                if marker in remote_id:
+                    entry_id = remote_id.split(marker)[-1].strip("/")
+                    if entry_id:
+                        urls.extend(_post_url_variants(f"{node_base}/api/entries/{entry_id}/comments"))
+                        urls.extend(_post_url_variants(f"{node_base}/api/posts/{entry_id}/comments"))
+                    break
+
+        # 3. /api/public/ variant
+        if "/api/authors/" in remote_id:
             public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments"
-            api_path = remote_id + "/comments"
-            html_path = remote_id.replace("/api/authors/", "/authors/") + "/comments"
-
             urls.extend(_post_url_variants(public_path))
-            urls.extend(_post_url_variants(api_path))
-            urls.extend(_post_url_variants(html_path))
 
-        elif "/api/authors/" in remote_id and "/posts/" in remote_id:
-            public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments"
-            api_path = remote_id + "/comments"
-            html_path = remote_id.replace("/api/authors/", "/authors/") + "/comments"
-
-            urls.extend(_post_url_variants(public_path))
-            urls.extend(_post_url_variants(api_path))
-            urls.extend(_post_url_variants(html_path))
-
-        elif "/authors/" in remote_id and "/entries/" in remote_id:
-            public_path = remote_id.replace("/authors/", "/api/public/authors/") + "/comments"
+        if "/authors/" in remote_id and "/api/authors/" not in remote_id:
             api_path = remote_id.replace("/authors/", "/api/authors/") + "/comments"
-            html_path = remote_id + "/comments"
-
-            urls.extend(_post_url_variants(public_path))
-            urls.extend(_post_url_variants(api_path))
-            urls.extend(_post_url_variants(html_path))
-
-        elif "/authors/" in remote_id and "/posts/" in remote_id:
             public_path = remote_id.replace("/authors/", "/api/public/authors/") + "/comments"
-            api_path = remote_id.replace("/authors/", "/api/authors/") + "/comments"
-            html_path = remote_id + "/comments"
-
-            urls.extend(_post_url_variants(public_path))
             urls.extend(_post_url_variants(api_path))
-            urls.extend(_post_url_variants(html_path))
+            urls.extend(_post_url_variants(public_path))
 
-        else:
-            urls.extend(_post_url_variants(remote_id + "/comments"))
+        # 4. /entries/ ↔ /posts/ cross-variants
+        if "/entries/" in remote_id:
+            posts_variant = remote_id.replace("/entries/", "/posts/")
+            urls.extend(_post_url_variants(posts_variant + "/comments"))
+            if "/api/authors/" in posts_variant:
+                urls.extend(_post_url_variants(
+                    posts_variant.replace("/api/authors/", "/api/public/authors/") + "/comments"
+                ))
+        elif "/posts/" in remote_id:
+            entries_variant = remote_id.replace("/posts/", "/entries/")
+            urls.extend(_post_url_variants(entries_variant + "/comments"))
+            if "/api/authors/" in entries_variant:
+                urls.extend(_post_url_variants(
+                    entries_variant.replace("/api/authors/", "/api/public/authors/") + "/comments"
+                ))
 
-        # NEW: FQID-based comments route
+        # 5. FQID-based
         if node_base:
             encoded_fqid = quote(remote_id, safe="")
             fqid_comments_url = f"{node_base}/api/entries/{encoded_fqid}/comments/"
             urls.extend(_post_url_variants(fqid_comments_url))
-
     deduped = []
     seen = set()
     for value in urls:
@@ -952,13 +1013,17 @@ def _fetch_remote_likes(post):
 
 def _send_remote_comment(user, post, text):
     comment_id = str(uuid.uuid4())
+    base_url = _site_url()
+
     payload = {
         "type": "comment",
-        "id": f"{_site_url()}/api/authors/{user.id}/commented/{comment_id}",
+        "id": f"{base_url}/api/authors/{user.id}/commented/{comment_id}",
         "author": _local_author_payload(user),
         "comment": text,
+        "content": text,
         "contentType": "text/plain",
         "object": str(post.remote_id or ""),
+        "entry": str(post.remote_id or ""),
         "published": timezone.now().isoformat(),
     }
 
@@ -978,7 +1043,7 @@ def _send_remote_comment(user, post, text):
                 )
                 if resp.status_code in [200, 201, 202, 204, 409]:
                     return True
-            except Exception as e:
+            except Exception:
                 continue
 
     for inbox_url in _candidate_remote_inbox_urls(post):
@@ -997,7 +1062,7 @@ def _send_remote_comment(user, post, text):
                 )
                 if resp.status_code in [200, 201, 202, 204, 409]:
                     return True
-            except Exception as e:
+            except Exception:
                 continue
 
     return False
@@ -1157,7 +1222,7 @@ def stream(request):
 
     all_posts = list(
         Post.objects.filter(deleted=False)
-        .exclude(title__startswith="GitHub Activity:") # <-- EXCLUDE GITHUB POSTS HERE
+        .exclude(title__startswith="GitHub Activity:")
         .filter(
             Q(is_remote=False, author=user)
             | Q(is_remote=False, visibility=Post.Visibility.PUBLIC)
@@ -1227,6 +1292,35 @@ def stream(request):
             pending_for_post = pending_remote_comments.get(str(p.remote_id), [])
 
             if refreshed_remote < max_remote_refresh:
+
+                # FIX: BEFORE fetching comments/likes, check the post itself
+                # to see if the remote changed its visibility.
+                # This catches PUBLIC->FRIENDS changes even when the remote
+                # still serves comments/likes on public endpoints.
+                current_visibility = _check_remote_post_visibility(p)
+
+                if current_visibility is not None and current_visibility != Post.Visibility.PUBLIC:
+                    # Remote says this post is now FRIENDS or UNLISTED.
+                    # Update our cache and hide it.
+                    Post.objects.filter(id=p.id).update(visibility=current_visibility)
+                    p._hide_from_stream = True
+                    refreshed_remote += 1
+                    continue
+
+                if current_visibility is False:
+                    # Remote denied access (403/401) or post deleted (404)
+                    p._hide_from_stream = True
+                    refreshed_remote += 1
+                    continue
+
+                # If post is FRIENDS in our cache, also hide
+                if p.visibility == Post.Visibility.FRIENDS:
+                    if current_visibility is None:
+                        # Couldn't reach the remote — hide to be safe
+                        p._hide_from_stream = True
+                        refreshed_remote += 1
+                        continue
+
                 remote_comments = _fetch_remote_comments(p, viewer=user, include_like_state=False)
                 remote_likes = _fetch_remote_likes(p)
 
@@ -1256,10 +1350,17 @@ def stream(request):
                 )
                 refreshed_remote += 1
             else:
+                # Beyond refresh limit — hide FRIENDS posts since we can't verify
+                if p.visibility == Post.Visibility.FRIENDS:
+                    p._hide_from_stream = True
+                    continue
                 p.remote_comment_list = list(pending_for_post)[:3]
                 p.comment_count = len(pending_for_post)
                 p.like_count = 0
                 p.liked_by_me = str(p.remote_id) in liked_remote_posts
+
+    # Remove posts that failed the visibility/access check
+    all_posts = [p for p in all_posts if not getattr(p, '_hide_from_stream', False)]
 
     return render(
         request,
@@ -1288,12 +1389,36 @@ def detail(request, post_id):
         rendered = None
 
     if post.is_remote:
+        # FIX: Check visibility BEFORE fetching comments/likes
+        current_visibility = _check_remote_post_visibility(post)
+
+        if current_visibility is False:
+            # Remote denied access or post deleted
+            Post.objects.filter(id=post.id).update(deleted=True)
+            raise Http404()
+
+        if current_visibility is not None and current_visibility == Post.Visibility.FRIENDS:
+            Post.objects.filter(id=post.id).update(visibility=Post.Visibility.FRIENDS)
+            return HttpResponseForbidden("This post is now friends-only.")
+
+        if current_visibility is not None and current_visibility != post.visibility:
+            # Update cache with new visibility
+            Post.objects.filter(id=post.id).update(visibility=current_visibility)
+
         remote_comments = _fetch_remote_comments(post, viewer=request.user)
         remote_likes = _fetch_remote_likes(post)
-        post_liked_by_me = any(_normalize_author_id(l.get("author_id")) in {
-            _normalize_author_id(f"{_site_url()}/api/authors/{request.user.id}"),
-            _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
-        } for l in remote_likes)
+
+        post_liked_by_me = False
+        if request.user.is_authenticated:
+            local_ids = {
+                _normalize_author_id(f"{_site_url()}/api/authors/{request.user.id}"),
+                _normalize_author_id(f"{_site_url()}/authors/{request.user.id}"),
+            }
+            post_liked_by_me = any(
+                _normalize_author_id(l.get("author_id")) in local_ids
+                for l in remote_likes
+                if isinstance(l, dict)
+            )
 
         return render(
             request,
@@ -1351,8 +1476,6 @@ def detail(request, post_id):
             "post_liked_by_me": post_liked_by_me,
         },
     )
-
-
 # ---------- Comment ----------
 
 @login_required
@@ -1593,6 +1716,88 @@ def _send_post_to_remote_inbox(remote_author, post):
         return resp.status_code in [200, 201, 202]
     except Exception:
         return False
+
+
+def _candidate_node_inbox_urls(node_base):
+    base = (node_base or "").rstrip("/")
+    if not base:
+        return []
+    return [
+        f"{base}/api/inbox/",
+        f"{base}/api/inbox",
+        f"{base}/inbox/",
+        f"{base}/inbox",
+    ]
+
+
+def _push_post_to_remote_recipients(post):
+    """
+    Push a created/updated post to remote recipients.
+
+    PUBLIC:
+      - push to known remote followers/friends
+      - also optionally fan out to node-level inbox guesses
+
+    UNLISTED:
+      - push to people the author follows (remote)
+
+    FRIENDS:
+      - push only to mutual friends (remote)
+    """
+    # Who does the author follow?
+    following_ids = set(
+        Follower.objects.filter(
+            follower=post.author,
+            status="accepted",
+        ).values_list("following_id", flat=True)
+    )
+
+    # Who follows the author?
+    follower_ids = set(
+        Follower.objects.filter(
+            following=post.author,
+            status="accepted",
+        ).values_list("follower_id", flat=True)
+    )
+
+    mutual_friend_ids = following_ids.intersection(follower_ids)
+
+    target_ids = set()
+
+    if post.visibility == Post.Visibility.PUBLIC:
+        target_ids.update(following_ids)
+        target_ids.update(follower_ids)
+        target_ids.update(mutual_friend_ids)
+    elif post.visibility == Post.Visibility.UNLISTED:
+        target_ids.update(following_ids)
+    elif post.visibility == Post.Visibility.FRIENDS:
+        target_ids.update(mutual_friend_ids)
+
+    # Push to remote authors only
+    recipients = (
+        Author.objects.filter(id__in=target_ids, is_remote=True)
+        .exclude(remote_id__isnull=True)
+        .exclude(remote_id="")
+        .distinct()
+    )
+
+    for remote_author in recipients:
+        _send_post_to_remote_inbox(remote_author, post)
+
+    # Optional fanout for PUBLIC posts so other nodes can cache/update it.
+    if post.visibility == Post.Visibility.PUBLIC:
+        payload = _post_to_activity_object(post)
+
+        for node_url in get_configured_nodes(exclude_local=True):
+            node_base = (node_url or "").rstrip("/")
+            if not node_base:
+                continue
+
+            auth = _auth_for_node(node_base)
+
+            for inbox_url in _candidate_node_inbox_urls(node_base):
+                if _try_post_json(inbox_url, payload, auth=auth, timeout=5):
+                    break
 
 
 def _push_deleted_post_to_remote_recipients(post):
@@ -1875,19 +2080,38 @@ def followers_feed(request):
         Like.objects.filter(author=author, comment__post__in=local_posts).values_list("comment_id", flat=True)
     )
 
-    for p in posts:
+    # FIX: Apply same visibility gate for followers_feed remote FRIENDS posts
+    posts_list = list(posts)
+
+    for p in posts_list:
         if p.content_type == Post.ContentType.MARKDOWN:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
         else:
             p.rendered = None
 
         if p.is_remote:
-            p.remote_comment_list = []
-            p.remote_like_list = []
-            p.comment_count = int(getattr(p, "remote_comment_count", 0) or 0)
-            p.like_count = int(getattr(p, "remote_like_count", 0) or 0)
-            p.liked_by_me = False
-            p.comment_list = []
+            # For remote FRIENDS posts in the friends feed, do a live check
+            if p.visibility == Post.Visibility.FRIENDS:
+                remote_comments = _fetch_remote_comments(p, viewer=author, include_like_state=False)
+                remote_likes = _fetch_remote_likes(p)
+
+                if not remote_comments and not remote_likes:
+                    p._hide_from_stream = True
+                    continue
+
+                p.remote_comment_list = remote_comments[:3]
+                p.remote_like_list = remote_likes
+                p.comment_count = len(remote_comments)
+                p.like_count = len(remote_likes)
+                p.liked_by_me = False
+                p.comment_list = []
+            else:
+                p.remote_comment_list = []
+                p.remote_like_list = []
+                p.comment_count = int(getattr(p, "remote_comment_count", 0) or 0)
+                p.like_count = int(getattr(p, "remote_like_count", 0) or 0)
+                p.liked_by_me = False
+                p.comment_list = []
         else:
             p.like_count = p.likes.count()
             p.comment_count = p.comments.count()
@@ -1896,11 +2120,14 @@ def followers_feed(request):
             for c in p.comment_list:
                 c.liked_by_me = c.id in comment_liked_ids
 
+    # FIX: remove posts that failed the visibility gate
+    posts_list = [p for p in posts_list if not getattr(p, '_hide_from_stream', False)]
+
     return render(
         request,
         "posts/stream.html",
         {
-            "posts": posts,
+            "posts": posts_list,
             "feed_title": "Friends Feed",
         },
     )
