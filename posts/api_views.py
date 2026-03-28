@@ -706,14 +706,16 @@ def _comment_obj(comment: Comment, request):
     comment_path = reverse(
         "posts:api-comment-detail",
         kwargs={
-            "author_id": comment_author_id,
+            "author_id": comment.post.author_id,
+            "post_id": comment.post_id,
             "comment_id": comment.id,
         },
     )
     likes_path = reverse(
         "posts:api-comment-likes",
         kwargs={
-            "author_id": comment_author_id,
+            "author_id": comment.post.author_id,
+            "post_id": comment.post_id,
             "comment_id": comment.id,
         },
     )
