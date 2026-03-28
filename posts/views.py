@@ -561,7 +561,7 @@ def _check_remote_post_visibility(post):
 def _author_inbox_url(author_url):
     if not author_url:
         return None
-    return f"{author_url.rstrip('/')}/inbox"
+    return f"{author_url.rstrip('/')}/inbox/"
 
 def _local_author_payload(user):
     base = _site_url()
@@ -811,7 +811,7 @@ def _candidate_remote_author_urls(post):
 def _candidate_remote_inbox_urls(post):
     inboxes = []
     for author_url in _candidate_remote_author_urls(post):
-        inboxes.extend(_post_url_variants(f"{author_url.rstrip('/')}/inbox"))
+        inboxes.extend(_post_url_variants(f"{author_url.rstrip('/')}/inbox/"))
 
     deduped = []
     seen = set()
@@ -1681,7 +1681,7 @@ def _remote_inbox_url_for_author(author_obj):
     api_base = _remote_api_author_base(author_obj)
     if not api_base:
         return ""
-    return f"{api_base}/inbox"
+    return f"{api_base}/inbox/"
 
 
 def _post_to_activity_object(post):
@@ -1733,8 +1733,8 @@ def _candidate_node_inbox_urls(node_base):
     if not base:
         return []
     return [
-        f"{base}/api/inbox",
-        f"{base}/inbox",
+        f"{base}/api/inbox/",
+        f"{base}/inbox/",
     ]
 
 def _push_post_to_remote_recipients(post):
@@ -1911,7 +1911,7 @@ def _push_deleted_post_to_remote_recipients(post):
             candidate_urls.extend(_post_url_variants(inbox_url))
         elif node_base:
             # fallback guesses for node-level inbox-ish endpoints if no author inbox known
-            candidate_urls.extend(_post_url_variants(f"{node_base}/api/inbox"))
+            candidate_urls.extend(_post_url_variants(f"{node_base}/api/inbox/"))
 
         for url in candidate_urls:
             for payload in (delete_payload, entry_payload):
