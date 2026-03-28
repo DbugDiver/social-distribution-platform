@@ -1170,6 +1170,7 @@ def api_author_inbox(request, pk):
 
     try:
         payload = json.loads(request.body.decode("utf-8"))
+        print("🔥 FULL PAYLOAD RECEIVED:", payload)
     except Exception:
         return JsonResponse({"detail": "Invalid JSON."}, status=400)
 
@@ -1177,6 +1178,18 @@ def api_author_inbox(request, pk):
 
     # Handles remote follow request delivered to this author's inbox.
     if activity_type == "follow":
+        #Printin statements--------------------
+        print("\n🔥🔥 FOLLOW REQUEST RECEIVED 🔥🔥")
+        print("RAW DATA:", payload)
+
+        actor = payload.get("actor", {})
+        print("ACTOR:", actor)
+        print("ACTOR ID:", actor.get("id"))
+
+        object_data = payload.get("object", {})
+        print("OBJECT:", object_data)
+        print("OBJECT ID:", object_data.get("id"))
+        #--------------------------------------
         actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
         remote_follower = _upsert_remote_author(actor_payload)
         if not remote_follower:
