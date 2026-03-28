@@ -248,109 +248,6 @@ def _paginated_collection(*, request, base_path, collection_type, queryset, seri
         "count": paginator.count,
         "src": src,
     }
-
-
-def _comment_obj(comment: Comment, request):
-    """Comment belongs to comment author, not post author"""
-    post_path = reverse(
-        "posts:api-entry-detail",
-        kwargs={"author_id": comment.post.author_id, "post_id": comment.post_id},
-    )
-    # Comment ID uses COMMENT'S AUTHOR, not post author
-    comment_path = reverse(
-        "posts:api-comment-detail",
-        kwargs={
-            "author_id": comment.author_id,  # ← COMMENT AUTHOR
-            "comment_id": comment.id,
-        },
-    )
-    likes_path = reverse(
-        "posts:api-comment-likes",
-        kwargs={
-            "author_id": comment.author_id,  # ← COMMENT AUTHOR
-            "comment_id": comment.id,
-        },
-    )
-
-    if comment.author:
-        author_obj = _author_obj(comment.author, request)
-    else:
-        author_obj = {
-            "type": "author",
-            "id": comment.remote_author_url or "",
-            "host": comment.remote_author_host or "",
-            "displayName": comment.remote_author_name or "Remote Author",
-            "github": "",
-            "profileImage": "",
-            "web": comment.remote_author_url or "",
-        }
-
-    return {
-        "type": "comment",
-        "author": author_obj,
-        "comment": comment.comment,
-        "contentType": comment.content_type,
-        "published": comment.published.isoformat(),
-        "id": request.build_absolute_uri(comment_path),
-        "object": request.build_absolute_uri(post_path),  # ← Entry it belongs to
-        "likes": {
-            "type": "likes",
-            "id": request.build_absolute_uri(likes_path),
-            "count": comment.likes.count(),
-        },
-    }
-
-
-def _like_obj(like: Like, request):
-    """Like belongs to like author"""
-    if like.author:
-        author_name = getattr(like.author, "displayName", "") or getattr(like.author, "username", "Unknown")
-        author_obj = _author_obj(like.author, request)
-    else:
-        author_name = like.remote_author_name or "Remote Author"
-        author_obj = {
-            "type": "author",
-            "id": like.remote_author_url or "",
-            "host": like.remote_author_host or "",
-            "displayName": like.remote_author_name or "Remote Author",
-            "github": "",
-            "profileImage": "",
-            "web": like.remote_author_url or "",
-        }
-
-    if like.post_id:
-        object_path = reverse(
-            "posts:api-entry-detail",
-            kwargs={"author_id": like.post.author_id, "post_id": like.post_id},
-        )
-        summary = f"{author_name} likes your post"
-    else:
-        object_path = reverse(
-            "posts:api-comment-detail",
-            kwargs={
-                "author_id": like.comment.author_id,  # ← COMMENT AUTHOR
-                "comment_id": like.comment_id,
-            },
-        )
-        summary = f"{author_name} likes your comment"
-
-    # Like ID uses LIKE AUTHOR, not comment/post author
-    like_path = reverse(
-        "posts:api-like-detail", 
-        kwargs={
-            "author_id": like.author.id if like.author else "",  # ← LIKE AUTHOR
-            "like_id": like.id
-        }
-    )
-
-    return {
-        "type": "like",
-        "summary": summary,
-        "author": author_obj,
-        "object": request.build_absolute_uri(object_path),
-        "id": request.build_absolute_uri(like_path) if like.author else str(like.remote_id or like.id),
-        "published": like.created.isoformat(),
-    }
     
 def authors_list_api(request):
     """GET /api/authors/ - List all authors (paginated)"""
@@ -670,7 +567,7 @@ def _remote_author_obj_from_post(post: Post):
         "profileImage": profile_image,
         "web": author_url,
     }
-
+    
 """
 Command:Create a modular Django API for a federated social network using helper functions for serialization, 
 permission checks, and pagination. Include support for remote authors and ensure all collection responses 
@@ -908,6 +805,10 @@ def _like_obj(like: Like, request):
         "id": request.build_absolute_uri(like_path),
         "published": like.created.isoformat(),
     }
+
+_comment_obj_public = _comment_obj
+_like_obj_public = _like_obj
+
 
 """
 Command: Generate a Django REST-style endpoint for public posts that includes pagination, 
