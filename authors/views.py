@@ -993,8 +993,31 @@ def _upsert_remote_author(author_payload):
     if not remote_id:
         return None
 
+    # ALWAYS look up by remote_id first - this is the canonical identifier
+    remote_author = Author.objects.filter(remote_id=remote_id).first()
+    if remote_author:
+        host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
+        display_name = (author_payload.get("displayName") or "").strip()
+        if not display_name:
+            display_name = (author_payload.get("username") or "").strip()
+
+        changed = False
+        if display_name and remote_author.displayName != display_name:
+            remote_author.displayName = display_name
+            changed = True
+        if host and remote_author.host != host:
+            remote_author.host = host
+            changed = True
+        if changed:
+            try:
+                remote_author.save(update_fields=["displayName", "host"])
+            except Exception:
+                # If save fails, it's OK - we already have the record
+                pass
+        return remote_author
+
+    # New remote author - create with deduplicated username
     host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
-    # Ensure we get displayName; it's the primary identifier for remote authors.
     display_name = (author_payload.get("displayName") or "").strip()
     if not display_name:
         display_name = (author_payload.get("username") or "").strip()
@@ -1008,35 +1031,29 @@ def _upsert_remote_author(author_payload):
     if not display_name:
         display_name = "Remote Author"
 
-    # We store a local proxy row for remote authors so follower relationships remain queryable.
-    remote_author = Author.objects.filter(remote_id=remote_id).first()
-    if remote_author:
-        changed = False
-        if display_name and remote_author.displayName != display_name:
-            remote_author.displayName = display_name
-            changed = True
-        if host and remote_author.host != host:
-            remote_author.host = host
-            changed = True
-        if changed:
-            remote_author.save(update_fields=["displayName", "host"])
-        return remote_author
-
     username = _remote_username_seed(remote_id)
+    # Ensure username is unique
+    original_username = username
+    counter = 1
     while Author.objects.filter(username=username).exists():
-        username = f"{username}_{uuid.uuid4().hex[:6]}"
+        username = f"{original_username}_{counter}"
+        counter += 1
 
-    remote_author = Author.objects.create(
-        username=username,
-        displayName=display_name,
-        host=host,
-        is_remote=True,
-        remote_id=remote_id,
-        is_approved=True,
-    )
-    remote_author.set_unusable_password()
-    remote_author.save(update_fields=["password"])
-    return remote_author
+    try:
+        remote_author = Author.objects.create(
+            username=username,
+            displayName=display_name,
+            host=host,
+            is_remote=True,
+            remote_id=remote_id,
+            is_approved=True,
+        )
+        remote_author.set_unusable_password()
+        remote_author.save(update_fields=["password"])
+        return remote_author
+    except Exception:
+        # Race condition or constraint violation - try to fetch again
+        return Author.objects.filter(remote_id=remote_id).first()
 
 
 def _refresh_remote_author(author):
@@ -1544,7 +1561,11 @@ def _fetch_remote_authors_from_node(node, query, auth):
     Try multiple endpoint patterns and response formats to fetch authors
     from a remote node. Returns a list of raw author dicts.
     """
+    import logging
+    logger = logging.getLogger("socialdistribution")
+    
     candidate_urls = _candidate_remote_author_search_urls(node, query)
+    logger.debug(f"Fetching remote authors from {node} with query '{query}', trying {len(candidate_urls)} URLs")
 
     # Try with auth first, then without (some groups serve authors publicly)
     auth_candidates = [auth, None] if auth else [None]
@@ -1552,31 +1573,40 @@ def _fetch_remote_authors_from_node(node, query, auth):
     for url in candidate_urls:
         for candidate_auth in auth_candidates:
             try:
+                logger.debug(f"Trying remote author endpoint: {url} (auth={bool(candidate_auth)})")
                 resp = requests.get(
                     url,
                     auth=candidate_auth,
                     timeout=8,
                     headers={"Accept": "application/json"},
                 )
+                logger.debug(f"Response status: {resp.status_code}")
+                
                 if resp.status_code != 200:
                     continue
 
                 # Some servers return HTML instead of JSON
                 content_type = resp.headers.get("content-type", "")
                 if "html" in content_type and "json" not in content_type:
+                    logger.debug(f"Skipped HTML response: {content_type}")
                     continue
 
                 try:
                     data = resp.json()
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"JSON parse error: {e}")
                     continue
 
                 items = _extract_author_items_flexible(data)
                 if items:
+                    logger.info(f"Found {len(items)} authors from {node} with query '{query}'")
                     return items
 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Error fetching from {url}: {e}")
                 continue
+    
+    logger.debug(f"No authors found from {node} matching query '{query}'")
 
     return []
 
