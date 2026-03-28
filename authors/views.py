@@ -1,6 +1,7 @@
 from datetime import datetime
 import uuid
 import re
+import hashlib
 from functools import lru_cache
 from urllib.parse import quote, unquote, urlparse
 from socket import timeout
@@ -18,7 +19,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.timezone import make_aware, now
 
-from posts.models import Like, Post
+from posts.models import Comment, Like, Post
 from node.registry import get_configured_nodes, get_node_auth
 
 from .forms import AuthorUpdateForm
@@ -107,13 +108,13 @@ def author_profile(request, pk):
 
             # Persist hydrated fields so profile metadata still appears if remote node is temporarily unavailable.
             changed_fields = []
-            if remote_display_name and author.displayName == remote_display_name:
+            if remote_display_name and author.displayName != remote_display_name:
                 changed_fields.append("displayName")
-            if remote_username and author.username == remote_username:
+            if remote_username and author.username != remote_username:
                 changed_fields.append("username")
-            if remote_github and author.github == remote_github:
+            if remote_github and author.github != remote_github:
                 changed_fields.append("github")
-            if remote_bio and author.bio == remote_bio:
+            if remote_bio and author.bio != remote_bio:
                 changed_fields.append("bio")
             if changed_fields:
                 author.save(update_fields=changed_fields)
@@ -1211,6 +1212,161 @@ def _store_remote_post(entry_payload, recipient):
     return post
 
 
+def _extract_uuid_from_url(url):
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    match = re.search(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}", raw)
+    if not match:
+        return None
+    try:
+        return uuid.UUID(match.group(0))
+    except Exception:
+        return None
+
+
+def _object_url_variants(object_url):
+    raw = (object_url or "").strip().rstrip("/")
+    if not raw:
+        return set()
+
+    variants = {raw, f"{raw}/"}
+
+    if "/api/public/authors/" in raw:
+        api_authors = raw.replace("/api/public/authors/", "/api/authors/")
+        html_authors = raw.replace("/api/public/authors/", "/authors/")
+        variants.update({api_authors, f"{api_authors}/", html_authors, f"{html_authors}/"})
+
+    if "/api/authors/" in raw:
+        public_authors = raw.replace("/api/authors/", "/api/public/authors/")
+        html_authors = raw.replace("/api/authors/", "/authors/")
+        variants.update({public_authors, f"{public_authors}/", html_authors, f"{html_authors}/"})
+
+    if "/authors/" in raw and "/authors/api/authors/" not in raw:
+        api_authors = raw.replace("/authors/", "/api/authors/")
+        public_authors = raw.replace("/authors/", "/api/public/authors/")
+        variants.update({api_authors, f"{api_authors}/", public_authors, f"{public_authors}/"})
+
+    return variants
+
+
+def _resolve_local_post_from_object(object_url):
+    variants = _object_url_variants(object_url)
+    if variants:
+        post = Post.objects.filter(remote_id__in=variants).first()
+        if post:
+            return post
+
+    post_uuid = _extract_uuid_from_url(object_url)
+    if post_uuid:
+        return Post.objects.filter(id=post_uuid).first()
+
+    return None
+
+
+def _resolve_local_comment_from_object(object_url):
+    variants = _object_url_variants(object_url)
+    if variants:
+        comment = Comment.objects.filter(remote_id__in=variants).first()
+        if comment:
+            return comment
+
+    comment_uuid = _extract_uuid_from_url(object_url)
+    if comment_uuid:
+        return Comment.objects.filter(id=comment_uuid).first()
+
+    return None
+
+
+def _store_remote_comment(comment_payload):
+    if not isinstance(comment_payload, dict):
+        return None
+
+    object_url = (
+        comment_payload.get("entry")
+        or comment_payload.get("object")
+        or ""
+    ).strip()
+    post = _resolve_local_post_from_object(object_url)
+    if not post:
+        return None
+
+    author_payload = comment_payload.get("author")
+    if not isinstance(author_payload, dict):
+        author_payload = {}
+    remote_author = _upsert_remote_author(author_payload)
+
+    content = (comment_payload.get("comment") or comment_payload.get("content") or "").strip()
+    if not content:
+        return None
+
+    remote_comment_id = (comment_payload.get("id") or "").strip() or None
+    if not remote_comment_id:
+        seed = f"{object_url}::{(author_payload.get('id') or author_payload.get('url') or '')}::{content}::{comment_payload.get('published') or ''}"
+        remote_comment_id = f"synthetic-comment://{hashlib.sha256(seed.encode('utf-8')).hexdigest()}"
+
+    content_type = (comment_payload.get("contentType") or comment_payload.get("content_type") or "text/plain").strip().lower()
+    if content_type not in ["text/plain", "text/markdown"]:
+        content_type = "text/plain"
+
+    defaults = {
+        "post": post,
+        "author": None,
+        "comment": content,
+        "content_type": content_type,
+        "is_remote": True,
+        "remote_author_url": remote_author.remote_id if remote_author else author_payload.get("id", ""),
+        "remote_author_name": (remote_author.displayName if remote_author else "") or author_payload.get("displayName") or author_payload.get("username") or "Remote Author",
+        "remote_author_host": (remote_author.host if remote_author else "") or author_payload.get("host") or _host_from_author_url(author_payload.get("id") or "") or "",
+    }
+
+    comment, _ = Comment.objects.update_or_create(
+        remote_id=remote_comment_id,
+        defaults=defaults,
+    )
+    return comment
+
+
+def _store_remote_like(like_payload):
+    if not isinstance(like_payload, dict):
+        return None
+
+    object_url = (like_payload.get("object") or "").strip()
+    if not object_url:
+        return None
+
+    target_comment = _resolve_local_comment_from_object(object_url)
+    target_post = None if target_comment else _resolve_local_post_from_object(object_url)
+    if not target_comment and not target_post:
+        return None
+
+    author_payload = like_payload.get("author")
+    if not isinstance(author_payload, dict):
+        author_payload = {}
+    remote_author = _upsert_remote_author(author_payload)
+
+    remote_like_id = (like_payload.get("id") or "").strip() or None
+    if not remote_like_id:
+        seed = f"{object_url}::{(author_payload.get('id') or author_payload.get('url') or '')}::{like_payload.get('published') or ''}"
+        remote_like_id = f"synthetic-like://{hashlib.sha256(seed.encode('utf-8')).hexdigest()}"
+
+    defaults = {
+        "is_remote": True,
+        "author": None,
+        "post": target_post,
+        "comment": target_comment,
+        "remote_author_url": remote_author.remote_id if remote_author else author_payload.get("id", ""),
+        "remote_author_name": (remote_author.displayName if remote_author else "") or author_payload.get("displayName") or author_payload.get("username") or "Remote Author",
+        "remote_author_host": (remote_author.host if remote_author else "") or author_payload.get("host") or _host_from_author_url(author_payload.get("id") or "") or "",
+    }
+
+    like, _ = Like.objects.update_or_create(
+        remote_id=remote_like_id,
+        defaults=defaults,
+    )
+    return like
+
+
 @csrf_exempt
 def api_author_inbox(request, pk):
     if request.method != "POST":
@@ -1310,6 +1466,20 @@ def api_author_inbox(request, pk):
             return JsonResponse({"detail": "Invalid entry payload."}, status=400)
 
         return JsonResponse({"detail": "Entry received."}, status=201)
+
+    if activity_type in ["comment", "comments"]:
+        comment = _store_remote_comment(payload)
+        if not comment:
+            return JsonResponse({"detail": "Invalid comment payload."}, status=400)
+
+        return JsonResponse({"detail": "Comment received."}, status=201)
+
+    if activity_type in ["like", "likes"]:
+        like = _store_remote_like(payload)
+        if not like:
+            return JsonResponse({"detail": "Invalid like payload."}, status=400)
+
+        return JsonResponse({"detail": "Like received."}, status=201)
 
     return JsonResponse({"detail": "Unsupported activity type."}, status=400)
 
