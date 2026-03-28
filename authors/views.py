@@ -84,48 +84,29 @@ def author_profile(request, pk):
     remote_profile_image_url = ""
 
     # For remote proxy rows, hydrate details from the canonical remote author endpoint.
+    # WARNING: Don't save remote authors in views - this causes IntegrityError when multiple
+    # remote authors from same node have same username. Display cached data only.
     if author.is_remote and author.remote_id:
         node_url = _host_from_author_url(author.remote_id)
         remote_doc = _fetch_remote_author_doc(author.remote_id)
 
         if isinstance(remote_doc, dict):
+            # Update in-memory only (don't save to DB) to avoid IntegrityError
             remote_display_name = _first_non_empty(remote_doc, ["displayName", "username", "name"])
-            # NOTE: Don't try to update remote author usernames - they're already deduplicated
-            # during _upsert_remote_author(). Updating them here can cause duplicate key violations.
-            # Instead, only update display name and other non-username fields.
             remote_github = _first_non_empty(remote_doc, ["github", "githubUrl"])
             remote_bio = _first_non_empty(remote_doc, ["bio", "description", "about"])
             remote_profile_image_url = _first_non_empty(remote_doc, ["profileImage", "profile_image", "avatar"])
 
             if remote_display_name:
                 author.displayName = remote_display_name
-            # Skip setting username - it's already deduplicated
             if remote_github:
                 author.github = remote_github
             if remote_bio:
                 author.bio = remote_bio
             if remote_profile_image_url.startswith("/") and node_url:
                 remote_profile_image_url = f"{node_url}{remote_profile_image_url}"
-
-            # Persist hydrated fields so profile metadata still appears if remote node is temporarily unavailable.
-            changed_fields = []
-            if remote_display_name and author.displayName != remote_display_name:
-                changed_fields.append("displayName")
-            # Skip username - don't add to changed_fields
-            if remote_github and author.github != remote_github:
-                changed_fields.append("github")
-            if remote_bio and author.bio != remote_bio:
-                changed_fields.append("bio")
             
-            if changed_fields:
-                try:
-                    author.save(update_fields=changed_fields)
-                except Exception as e:
-                    # If save fails, log but don't crash
-                    # The current cached values will be displayed instead
-                    import logging
-                    logger = logging.getLogger("socialdistribution")
-                    logger.debug(f"Failed to hydrate author {author.id}: {str(e)}")
+            # DO NOT SAVE - just display the hydrated data in memory
 
     is_following = False
     follow_status = None
