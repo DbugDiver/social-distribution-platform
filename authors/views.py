@@ -933,13 +933,31 @@ def _fetch_remote_author_doc(author_url):
 
 
 def _candidate_remote_author_search_urls(node, query):
-    q = quote(query)
+    q = quote(query or "")
     base = node.rstrip("/")
-    return [
+    urls = [
         f"{base}/api/authors/?search={q}",
+        f"{base}/api/authors/?q={q}",
+        f"{base}/api/authors/?query={q}",
+        f"{base}/api/authors/?username={q}",
+        f"{base}/api/authors/?displayName={q}",
         f"{base}/api/authors/?page=1&size=200&_federated=1",
+        f"{base}/api/authors/?page=1&size=200",
         f"{base}/api/authors/",
+        f"{base}/authors/api/authors/?search={q}",
+        f"{base}/authors/api/authors/?q={q}",
+        f"{base}/authors/api/authors/?page=1&size=200",
+        f"{base}/authors/api/authors/",
+        f"{base}/authors/",
     ]
+
+    deduped = []
+    seen = set()
+    for url in urls:
+        if url not in seen:
+            deduped.append(url)
+            seen.add(url)
+    return deduped
 
 def _normalize_remote_author_card(author, node):
     author_id = (author.get("id") or author.get("url") or "").strip()

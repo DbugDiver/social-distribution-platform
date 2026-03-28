@@ -702,6 +702,24 @@ def _candidate_remote_comments_urls(post):
             encoded_fqid = quote(remote_id, safe="")
             fqid_comments_url = f"{node_base}/api/entries/{encoded_fqid}/comments/"
             urls.extend(_post_url_variants(fqid_comments_url))
+
+            parts = [part for part in remote_id.split("/") if part]
+            if "authors" in parts and ("entries" in parts or "posts" in parts):
+                try:
+                    author_idx = parts.index("authors")
+                    post_marker = "entries" if "entries" in parts else "posts"
+                    post_idx = parts.index(post_marker)
+                    author_part = parts[author_idx + 1]
+                    post_part = parts[post_idx + 1]
+
+                    urls.extend(_post_url_variants(
+                        f"{node_base}/api/authors/{author_part}/{post_marker}/{post_part}/comments"
+                    ))
+                    urls.extend(_post_url_variants(
+                        f"{node_base}/authors/{author_part}/{post_marker}/{post_part}/comments"
+                    ))
+                except Exception:
+                    pass
     deduped = []
     seen = set()
     for value in urls:
@@ -719,6 +737,7 @@ def _candidate_remote_likes_urls(post):
         urls.extend(_url_variants(explicit))
 
     remote_id = str(post.remote_id or "").rstrip("/")
+    node_base = str(post.node_url or "").rstrip("/")
     if remote_id:
         if "/api/authors/" in remote_id and "/entries/" in remote_id:
             public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/likes"
@@ -750,6 +769,33 @@ def _candidate_remote_likes_urls(post):
             urls.extend(_post_url_variants(html_path))
         else:
             urls.extend(_post_url_variants(remote_id + "/likes"))
+
+        if node_base:
+            for marker in ["/entries/", "/posts/"]:
+                if marker in remote_id:
+                    entry_id = remote_id.split(marker)[-1].strip("/")
+                    if entry_id:
+                        urls.extend(_post_url_variants(f"{node_base}/api/entries/{entry_id}/likes"))
+                        urls.extend(_post_url_variants(f"{node_base}/api/posts/{entry_id}/likes"))
+                    break
+
+            parts = [part for part in remote_id.split("/") if part]
+            if "authors" in parts and ("entries" in parts or "posts" in parts):
+                try:
+                    author_idx = parts.index("authors")
+                    post_marker = "entries" if "entries" in parts else "posts"
+                    post_idx = parts.index(post_marker)
+                    author_part = parts[author_idx + 1]
+                    post_part = parts[post_idx + 1]
+
+                    urls.extend(_post_url_variants(
+                        f"{node_base}/api/authors/{author_part}/{post_marker}/{post_part}/likes"
+                    ))
+                    urls.extend(_post_url_variants(
+                        f"{node_base}/authors/{author_part}/{post_marker}/{post_part}/likes"
+                    ))
+                except Exception:
+                    pass
 
     deduped = []
     seen = set()
@@ -883,6 +929,9 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
     else:
         items = []
 
+    if isinstance(items, dict):
+        items = [items]
+
     if not isinstance(items, list):
         return []
 
@@ -893,7 +942,8 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
             continue
 
         author = raw.get("author", {}) if isinstance(raw.get("author"), dict) else {}
-        likes_obj = raw.get("likes") if isinstance(raw.get("likes"), dict) else {}
+        likes_obj_raw = raw.get("likes")
+        likes_obj = likes_obj_raw if isinstance(likes_obj_raw, dict) else {}
 
         comment_id = str(raw.get("id") or "").strip()
 
@@ -919,7 +969,7 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
                 or author.get("url")
                 or ""
             ),
-            "like_count": likes_obj.get("count", 0),
+            "like_count": likes_obj.get("count") or raw.get("likeCount") or raw.get("likes_count") or 0,
             "likes_url": comment_likes_url,
             "liked_by_me": False,
         })
@@ -976,6 +1026,9 @@ def _fetch_remote_likes(post):
     else:
         items = []
 
+    if isinstance(items, dict):
+        items = [items]
+
     if not isinstance(items, list):
         return []
 
@@ -1024,43 +1077,73 @@ def _send_remote_comment(user, post, text):
         "published": timezone.now().isoformat(),
     }
 
+    payload_variants = [
+        payload,
+        {
+            **payload,
+            "type": "Comment",
+        },
+    ]
+
     for comments_url in _candidate_remote_comments_urls(post):
-        for auth in _auth_candidates_for_post(post):
-            try:
-                resp = requests.post(
-                    comments_url,
-                    json=payload,
-                    auth=auth,
-                    timeout=5,
-                    allow_redirects=False,
-                    headers={
-                        "Accept": "application/json",
-                        "Content-Type": "application/json",
-                    },
-                )
-                if resp.status_code in [200, 201, 202, 204, 409]:
-                    return True
-            except Exception:
-                continue
+        for candidate_payload in payload_variants:
+            for auth in _auth_candidates_for_post(post):
+                try:
+                    resp = requests.post(
+                        comments_url,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
 
     for inbox_url in _candidate_remote_inbox_urls(post):
-        for auth in _auth_candidates_for_post(post):
-            try:
-                resp = requests.post(
-                    inbox_url,
-                    json=payload,
-                    auth=auth,
-                    timeout=5,
-                    allow_redirects=False,
-                    headers={
-                        "Accept": "application/json",
-                        "Content-Type": "application/json",
-                    },
-                )
-                if resp.status_code in [200, 201, 202, 204, 409]:
-                    return True
-            except Exception:
-                continue
+        for candidate_payload in payload_variants:
+            for auth in _auth_candidates_for_post(post):
+                try:
+                    resp = requests.post(
+                        inbox_url,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
+
+    for node_inbox in _candidate_node_inbox_urls(post.node_url):
+        for candidate_payload in payload_variants:
+            for auth in _auth_candidates_for_post(post):
+                try:
+                    resp = requests.post(
+                        node_inbox,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
 
     return False
 
@@ -1073,46 +1156,77 @@ def _send_remote_like(user, post):
         "author": _local_author_payload(user),
         "object": post.remote_id,
         "published": timezone.now().isoformat(),
+        "summary": f"{getattr(user, 'displayName', '') or getattr(user, 'username', 'A user')} likes your post",
     }
 
-    for likes_url in _candidate_remote_likes_urls(post):
-        for auth in _auth_candidates_for_post(post):
-            try:
-                resp = requests.post(
-                    likes_url,
-                    json=payload,
-                    auth=auth,
-                    timeout=5,
-                    allow_redirects=False,
-                    headers={
-                        "Accept": "application/json",
-                        "Content-Type": "application/json",
-                    },
-                )
+    payload_variants = [
+        payload,
+        {
+            **payload,
+            "type": "Like",
+        },
+    ]
 
-                if resp.status_code in [200, 201, 202, 204, 409]:
-                    return True
-            except Exception as e:
-                continue
+    for likes_url in _candidate_remote_likes_urls(post):
+        for candidate_payload in payload_variants:
+            for auth in _auth_candidates_for_post(post):
+                try:
+                    resp = requests.post(
+                        likes_url,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
 
     for inbox_url in _candidate_remote_inbox_urls(post):
-        for auth in _auth_candidates_for_post(post):
-            try:
-                resp = requests.post(
-                    inbox_url,
-                    json=payload,
-                    auth=auth,
-                    timeout=5,
-                    allow_redirects=False,
-                    headers={
-                        "Accept": "application/json",
-                        "Content-Type": "application/json",
-                    },
-                )
-                if resp.status_code in [200, 201, 202, 204, 409]:
-                    return True
-            except Exception as e:
-                continue
+        for candidate_payload in payload_variants:
+            for auth in _auth_candidates_for_post(post):
+                try:
+                    resp = requests.post(
+                        inbox_url,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
+
+    for node_inbox in _candidate_node_inbox_urls(post.node_url):
+        for candidate_payload in payload_variants:
+            for auth in _auth_candidates_for_post(post):
+                try:
+                    resp = requests.post(
+                        node_inbox,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
 
     return False
 
@@ -1146,29 +1260,39 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
         "author": _local_author_payload(user),
         "object": comment_object,
         "published": timezone.now().isoformat(),
+        "summary": f"{getattr(user, 'displayName', '') or getattr(user, 'username', 'A user')} likes your comment",
     }
+
+    payload_variants = [
+        payload,
+        {
+            **payload,
+            "type": "Like",
+        },
+    ]
 
     like_urls = _post_url_variants(likes_url)
     auth_candidates = _auth_candidates_for_post(post)
 
     for candidate_url in like_urls:
-        for auth in auth_candidates:
-            try:
-                resp = requests.post(
-                    candidate_url,
-                    json=payload,
-                    auth=auth,
-                    timeout=5,
-                    allow_redirects=False,
-                    headers={
-                        "Accept": "application/json",
-                        "Content-Type": "application/json",
-                    },
-                )
-                if resp.status_code in [200, 201, 202, 204, 409]:
-                    return True
-            except Exception:
-                continue
+        for candidate_payload in payload_variants:
+            for auth in auth_candidates:
+                try:
+                    resp = requests.post(
+                        candidate_url,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
 
     return False
 
