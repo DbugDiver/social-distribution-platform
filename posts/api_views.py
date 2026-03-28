@@ -34,10 +34,17 @@ def _serialize_entry(post, request):
         likes_web = ""
         comments_api_url = ""
         likes_api_url = ""
-        comments_count = 0
-        likes_count = 0
-        comments_src = []
-        likes_src = []
+        
+        # Fetch comments from remote server
+        from posts.views import _fetch_remote_comments, _fetch_remote_likes
+        comments_list = _fetch_remote_comments(post, viewer=request.user if request.user.is_authenticated else None)
+        comments_count = len(comments_list)
+        comments_src = comments_list[:5]
+        
+        # Fetch likes from remote server  
+        likes_list = _fetch_remote_likes(post)
+        likes_count = len(likes_list)
+        likes_src = likes_list[:50]
     else:
         entry_id = request.build_absolute_uri(
             reverse(
