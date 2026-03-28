@@ -31,6 +31,50 @@ def home_feed(request):
     #return redirect("author-profile", pk=request.user.id)
     return redirect("posts:stream")
 
+def _remote_follow_candidate_urls(author_url):
+    """
+    Generate candidate URLs to POST follow/accept/unfollow payloads to.
+    Different teams use different API patterns:
+      - /api/authors/<uuid>/inbox/    (our format, UUID)
+      - /api/authors/<uuid>/inbox     (no trailing slash)
+      - /api/authors/<int>/inbox/     (integer IDs)
+      - /api/authors/<int>/follow/    (some teams use /follow/ instead of /inbox/)
+    """
+    base = (author_url or "").strip().rstrip("/")
+    if not base:
+        return []
+
+    urls = [
+        f"{base}/inbox/",
+        f"{base}/inbox",
+    ]
+
+    # Some teams use /follow/ instead of /inbox/
+    urls.append(f"{base}/follow/")
+    urls.append(f"{base}/follow")
+
+    # If the author URL uses a UUID, also try integer-style paths
+    # by probing the remote author endpoint to discover their actual ID
+    node_url = _host_from_author_url(base)
+    if node_url:
+        # Try to extract the author ID segment from the URL
+        # e.g., https://remote.com/api/authors/5 -> "5"
+        # e.g., https://remote.com/api/authors/some-uuid -> "some-uuid"
+        path_segment = base.split("/authors/")[-1].strip("/") if "/authors/" in base else ""
+
+        if path_segment:
+            # Add /authors/api/authors/ variant (some teams nest differently)
+            urls.append(f"{node_url}/authors/api/authors/{path_segment}/inbox/")
+            urls.append(f"{node_url}/authors/api/authors/{path_segment}/inbox")
+
+    # Deduplicate while preserving order
+    seen = set()
+    deduped = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            deduped.append(url)
+    return deduped
 
 @login_required
 def author_profile(request, pk):
@@ -560,20 +604,18 @@ def send_a_follow_request(request):
             },
         '''
 
-        inbox_url = author_url.rstrip("/") + "/inbox/"
         node_url = _host_from_author_url(author_url)
         auth = _auth_for_node(node_url) if node_url else None
-        #print("\n🚀 SENDING FOLLOW REQUEST")
-        #print("INBOX URL:", inbox_url)
-        #print("PAYLOAD:", data)
-        #print("AUTH:", auth)
 
-        try:
-            requests.post(inbox_url, json=data, auth=auth, timeout=5)
-        except Exception as e:
-            import traceback
-            #print("🔥 ERROR sending follow:", e)
-            traceback.print_exc()
+        # Try multiple inbox/follow endpoint patterns — different teams use different APIs
+        candidate_urls = _remote_follow_candidate_urls(author_url)
+        for url in candidate_urls:
+            try:
+                resp = requests.post(url, json=data, auth=auth, timeout=5)
+                if resp.status_code in [200, 201, 202]:
+                    break
+            except Exception:
+                continue
 
         return _redirect_back()
 
@@ -890,7 +932,6 @@ def _candidate_remote_author_search_urls(node, query):
         f"{base}/api/authors/",
     ]
 
-
 def _normalize_remote_author_card(author, node):
     author_id = (author.get("id") or author.get("url") or "").strip()
     host = (author.get("host") or node).rstrip("/")
@@ -1031,14 +1072,17 @@ def _local_author_payload(author):
 
 
 def _post_remote_inbox(author_url, payload):
-    inbox_url = author_url.rstrip("/") + "/inbox/"
     node_url = _host_from_author_url(author_url)
     auth = _auth_for_node(node_url) if node_url else None
-    try:
-        resp = requests.post(inbox_url, json=payload, auth=auth, timeout=5)
-        return resp.status_code in [200, 201, 202]
-    except Exception:
-        return False
+
+    for url in _remote_follow_candidate_urls(author_url):
+        try:
+            resp = requests.post(url, json=payload, auth=auth, timeout=5)
+            if resp.status_code in [200, 201, 202]:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def _looks_like_base64_image_blob(value):
@@ -1269,6 +1313,95 @@ def api_author_inbox(request, pk):
 
     return JsonResponse({"detail": "Unsupported activity type."}, status=400)
 
+def _extract_author_items_flexible(payload):
+    """
+    Extract a list of author dicts from various response shapes that
+    different groups use:
+      - Direct list: [{"id": ..., "displayName": ...}, ...]
+      - {"items": [...]}
+      - {"src": [...]}
+      - {"results": [...]}
+      - {"authors": [...]}
+      - {"data": [...]}
+      - Paginated DRF: {"count": N, "next": ..., "results": [...]}
+    """
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict) and _looks_like_author(item)]
+
+    if not isinstance(payload, dict):
+        return []
+
+    for key in ("items", "src", "results", "authors", "data", "members", "users"):
+        value = payload.get(key)
+        if isinstance(value, list) and value:
+            authors = [item for item in value if isinstance(item, dict) and _looks_like_author(item)]
+            if authors:
+                return authors
+
+    return []
+
+
+def _looks_like_author(item):
+    """
+    Check if a dict looks like an author object by checking for
+    common author fields. Different groups use different field names.
+    """
+    if not isinstance(item, dict):
+        return False
+
+    has_id = bool(item.get("id") or item.get("url"))
+    has_name = bool(
+        item.get("displayName")
+        or item.get("username")
+        or item.get("name")
+        or item.get("display_name")
+    )
+    item_type = (item.get("type") or "").lower()
+    type_ok = item_type in ("", "author", "person", "user")
+
+    return has_id and has_name and type_ok
+
+def _fetch_remote_authors_from_node(node, query, auth):
+    """
+    Try multiple endpoint patterns and response formats to fetch authors
+    from a remote node. Returns a list of raw author dicts.
+    """
+    candidate_urls = _candidate_remote_author_search_urls(node, query)
+
+    # Try with auth first, then without (some groups serve authors publicly)
+    auth_candidates = [auth, None] if auth else [None]
+
+    for url in candidate_urls:
+        for candidate_auth in auth_candidates:
+            try:
+                resp = requests.get(
+                    url,
+                    auth=candidate_auth,
+                    timeout=8,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.status_code != 200:
+                    continue
+
+                # Some servers return HTML instead of JSON
+                content_type = resp.headers.get("content-type", "")
+                if "html" in content_type and "json" not in content_type:
+                    continue
+
+                try:
+                    data = resp.json()
+                except Exception:
+                    continue
+
+                items = _extract_author_items_flexible(data)
+                if items:
+                    return items
+
+            except Exception:
+                continue
+
+    return []
+
 @login_required
 def author_search(request):
     query = request.GET.get("q", "").strip()
@@ -1277,7 +1410,6 @@ def author_search(request):
 
     if query:
         # LOCAL
-        # Only list true local accounts here; remote proxy rows are merged below.
         local_users = Author.objects.filter(
             Q(username__icontains=query) | Q(displayName__icontains=query)
         ).filter(is_remote=False).exclude(id=request.user.id)
@@ -1310,18 +1442,14 @@ def author_search(request):
                 "profile_uuid": str(user.id),
             })
 
-        # REMOTE
+        # REMOTE — query every configured remote node
         for node in get_configured_nodes(exclude_local=True):
-            items = []
-            for url in _candidate_remote_author_search_urls(node, query):
-                data = _try_get_json(url, auth=_auth_for_node(node))
-                if not data:
-                    # Some peers expose public author listing without basic auth.
-                    data = _try_get_json(url, auth=None)
-                extracted = _extract_author_items(data)
-                if extracted:
-                    items = extracted
-                    break
+            node = (node or "").rstrip("/")
+            if not node:
+                continue
+
+            auth = _auth_for_node(node)
+            items = _fetch_remote_authors_from_node(node, query, auth)
 
             for author in items:
                 normalized = _normalize_remote_author_card(author, node)
@@ -1333,7 +1461,6 @@ def author_search(request):
                 if query.lower() not in haystack:
                     continue
 
-                # Ensure search cards can link to a local profile route for remote authors.
                 remote_proxy = _upsert_remote_author(normalized)
                 if remote_proxy:
                     normalized["profile_uuid"] = str(remote_proxy.id)
