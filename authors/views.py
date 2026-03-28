@@ -16,6 +16,7 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.core.cache import cache
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.timezone import make_aware, now
 
 from posts.models import Like, Post
 from node.registry import get_configured_nodes, get_node_auth
@@ -151,27 +152,34 @@ def author_profile(request, pk):
         else:
             allowed_vis = ["PUBLIC"]
 
+        # EXCLUDE GITHUB POSTS HERE
         posts = Post.objects.filter(
             is_remote=True,
             deleted=False,
             visibility__in=allowed_vis,
             remote_author_url__in=list(remote_ids),
-        ).order_by("-published", "-created")
+        ).exclude(title__startswith="GitHub").order_by("-published", "-created")
+
     elif request.user == author:
         # Looking at my own profile: I see all my own posts
-        posts = Post.objects.filter(author=author, deleted=False).order_by("-created")
+        # EXCLUDE GITHUB POSTS HERE
+        posts = Post.objects.filter(author=author, deleted=False).exclude(title__startswith="GitHub").order_by("-created")
+
     elif is_friend:
         # A friend is looking: They see Public, Friends-only, and Unlisted posts
+        # EXCLUDE GITHUB POSTS HERE
         posts = Post.objects.filter(
             author=author,
             deleted=False,
             visibility__in=["PUBLIC", "FRIENDS", "UNLISTED"],
-        ).order_by("-created")
+        ).exclude(title__startswith="GitHub").order_by("-created")
+
     else:
         # A stranger is looking: They only see Public posts
+        # EXCLUDE GITHUB POSTS HERE
         posts = Post.objects.filter(
             author=author, deleted=False, visibility="PUBLIC"
-        ).order_by("-created")
+        ).exclude(title__startswith="GitHub").order_by("-created")
 
     # 3. Add like/comment counts for the template
     post_liked_ids = set(
@@ -188,7 +196,7 @@ def author_profile(request, pk):
                 _sanitize_cached_remote_post(p)
             except Exception:
                 pass
-        
+
         # Convert markdown if needed
         if getattr(p, "content_type", "") == "text/markdown" and md:
             p.rendered = md.markdown(p.content or "", extensions=["extra"])
@@ -224,93 +232,109 @@ def author_profile(request, pk):
             p.comment_count = p.comments.count()
             p.liked_by_me = p.id in post_liked_ids
 
-    # 4. Fetch and Format Github activity
+    # 4. Fetch and Format Github activity (Merged Strategy: DB Saving + Rich Styling)
     github_events = []
     if author.github:
         gh_username = author.github.strip("/").split("/")[-1]
 
-        # Check if we already have this user's data saved in the cache
-        cache_key = f"github_events_{gh_username}"
-        cached_events = cache.get(cache_key)
+        # Safety check: Only hit the GitHub API once every 5 minutes per user
+        sync_key = f"gh_sync_test_1_{gh_username}" # Change the name to break the cache
 
-        if cached_events:
-            github_events = cached_events
-        else:
+        if not cache.get(sync_key):
             try:
                 gh_res = requests.get(
                     f"https://api.github.com/users/{gh_username}/events/public",
                     timeout=2,
                 )
                 if gh_res.status_code == 200:
-                    raw_events = gh_res.json()[:5]
+                    raw_events = gh_res.json()[:10] # Grab recent events to check
 
-                    # Parse the raw data into clean, template-ready dictionaries
                     for event in raw_events:
                         event_type = event.get("type", "UnknownEvent")
                         repo_name = event.get("repo", {}).get("name", "unknown/repo")
                         payload = event.get("payload", {})
 
-                        # Fix 1: Convert GitHub's text date into a real Python datetime object
+                        # Parse the date robustly
                         raw_date = event.get("created_at", "")
                         if raw_date:
                             try:
-                                parsed_date = datetime.strptime(
-                                    raw_date, "%Y-%m-%dT%H:%M:%SZ"
-                                )
+                                parsed_date = datetime.strptime(raw_date, "%Y-%m-%dT%H:%M:%SZ")
                             except ValueError:
-                                parsed_date = None
+                                parsed_date = datetime.now()
                         else:
-                            parsed_date = None
+                            parsed_date = datetime.now()
 
-                        clean_event = {
-                            "repo_name": repo_name,
-                            "repo_url": f"https://github.com/{repo_name}",
-                            "created_at": parsed_date,  # Now passes a real date!
-                            "action_text": f"triggered a {event_type} on",
-                            "extra_info": None,
-                            "icon": "🤖",
-                        }
+                        # --- RICH STYLING LOGIC ---
+                        action_text = f"triggered a {event_type} on"
+                        extra_info = ""
+                        icon = "🤖"
 
                         if event_type == "PushEvent":
                             commits = payload.get("commits", [])
-                            # Fix 2: Check GitHub's 'size' key if the commits list is empty
-                            clean_event["action_text"] = f"pushed commit to"
-                            clean_event["icon"] = "🛠️"
-
+                            action_text = "pushed commit to"
+                            icon = "🛠️"
                             if commits and "message" in commits[0]:
-                                clean_event["extra_info"] = commits[0]["message"][:100]
+                                extra_info = commits[0]["message"][:100]
 
                         elif event_type == "PullRequestEvent":
                             action = payload.get("action", "opened")
-                            clean_event["action_text"] = f"{action} a pull request on"
-                            clean_event["icon"] = "🔄"
-                            clean_event["extra_info"] = payload.get(
-                                "pull_request", {}
-                            ).get("title", "")[:100]
+                            action_text = f"{action} a pull request on"
+                            icon = "🔄"
+                            extra_info = payload.get("pull_request", {}).get("title", "")[:100]
 
                         elif event_type == "IssuesEvent":
                             action = payload.get("action", "opened")
-                            clean_event["action_text"] = f"{action} an issue on"
-                            clean_event["icon"] = "⚠️"
-                            clean_event["extra_info"] = payload.get("issue", {}).get(
-                                "title", ""
-                            )[:100]
+                            action_text = f"{action} an issue on"
+                            icon = "⚠️"
+                            extra_info = payload.get("issue", {}).get("title", "")[:100]
 
                         elif event_type == "WatchEvent":
-                            clean_event["action_text"] = "starred the repository"
-                            clean_event["icon"] = "⭐️"
+                            action_text = "starred the repository"
+                            icon = "⭐️"
 
                         elif event_type == "CreateEvent":
                             ref_type = payload.get("ref_type", "repository")
-                            clean_event["action_text"] = f"created a {ref_type} for"
-                            clean_event["icon"] = "🌱"
+                            action_text = f"created a {ref_type} for"
+                            icon = "🌱"
 
-                        github_events.append(clean_event)
+                        # Construct a rich title and content for the Database
+                        post_title = f"GitHub Activity: {icon} {action_text} {repo_name}"
 
-                    # Save the parsed events to the cache for 300 seconds (5 minutes)
-                    cache.set(cache_key, github_events, 300)
-            except:
-                pass
+                        post_content = f"Repository: https://github.com/{repo_name}"
+                        if extra_info:
+                            post_content += f"\n\nDetails: {extra_info}"
+
+                        # DUPLICATE CHECK
+                        if not Post.objects.filter(author=author, title=post_title, published=parsed_date).exists():
+                            # Create the newly formatted Post object in the DB
+                            Post.objects.create(
+                                id=uuid.uuid4(),
+                                author=author,
+                                title=post_title,
+                                content=post_content,
+
+                                # FIX: Check your posts/models.py. It might be content_type="text/plain".
+                                # If the field doesn't exist at all, just delete this line!
+                                content_type="text/plain",
+
+                                visibility="UNLISTED",
+
+                                # DELETED: unlisted=True (This was causing the crash!)
+
+                                published=parsed_date,
+                            )
+
+                    # Lock the sync for 5 minutes (300 seconds) so we don't get rate-limited
+                    cache.set(sync_key, True, 300)
+            except Exception as e:
+                print(f"GitHub fetch failed: {e}")
+
+        # Finally, query the nicely formatted events from the database
+        github_events = Post.objects.filter(
+            author=author,
+            visibility="UNLISTED",
+            title__startswith="GitHub Activity"
+        ).order_by("-published")[:5]
 
     context = {
         "profile_user": author,
@@ -346,6 +370,11 @@ def custom_login(request):
         )
     return render(request, "registration/login.html", {"form": form})
 
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.contrib.auth.forms import AuthenticationForm
+# ... other imports ...
+
 @csrf_exempt
 def signup_author(request):
     if request.method == "POST":
@@ -354,11 +383,30 @@ def signup_author(request):
 
         all_authors = Author.objects.values_list("username", flat=True)
         form = AuthenticationForm(initial={"username": username})
+
+        # 1. Check if username exists
         if username in all_authors:
             return render(
                 request, "registration/login.html", {"show_message": True, "form": form}
             )
 
+        # 2. VALIDATE THE PASSWORD
+        try:
+            # This checks against all rules in settings.py
+            validate_password(password)
+        except ValidationError as e:
+            # If it fails, return the errors to the template
+            return render(
+                request,
+                "registration/login.html",
+                {
+                    "form": form,
+                    "password_errors": e.messages, # This contains the specific failure reasons
+                    "submitted_username": username
+                }
+            )
+
+        # 3. Create the user only if validation passed
         Author.objects.create_user(
             username=username, password=password, is_approved=False
         )
@@ -372,7 +420,7 @@ def signup_author(request):
 def edit_profile(request, author_id=None):
     """Edit Profile Logic"""
     # Merge-fix: default to current user, and block editing someone else's profile.
-    
+
     # If admin, allow editing any author
     if request.user.is_superuser:
         author = get_object_or_404(Author, id=author_id)
@@ -383,6 +431,11 @@ def edit_profile(request, author_id=None):
 
     if request.method == "POST":
         form = AuthorUpdateForm(request.POST, request.FILES, instance=author)
+
+        if request.POST.get("remove_image") == "true":
+            author.profileImage = ""  # Clears the image field
+            author.save(update_fields=["profileImage"])
+            return redirect("edit-profile", author_id=author.pk)
 
         github_link = request.POST.get("github", "").strip()
 
@@ -419,6 +472,7 @@ def edit_profile(request, author_id=None):
 
     return render(request, "authors/edit_profile.html", {"form": form})
 
+from django.contrib.auth import logout
 
 
 @login_required
@@ -525,14 +579,14 @@ def accept_follow_request(request, pk):
         "accepted"  # update the status of the follow request to accepted
     )
     follow_request.save()  # save the changes to the database
-    
+
     # Clean up the old follow_request notification
     Notification.objects.filter(
         recipient=author,
         sender=follower,
         notification_type__in=["follow_request", "follow"]
     ).delete()
-    
+
     Notification.objects.create(
         recipient=follower,
         sender=author,
@@ -566,14 +620,14 @@ def reject_follow_request(request, pk):
         "rejected"  # update the status of the follow request to rejected
     )
     follow_request.save()  # save the changes to the database
-    
+
     # Clean up the follow_request notification when rejecting
     Notification.objects.filter(
         recipient=author,
         sender=follower,
         notification_type__in=["follow_request", "follow"]
     ).delete()
-    
+
     return redirect("author-profile", pk=author.pk)
 
 
@@ -603,7 +657,7 @@ def unfollow(request, pk):
     following = get_object_or_404(
         Author, pk=pk
     )  # get the author that the user wants to unfollow, if the author does not exist, return a 404 error
-    
+
     # Delete local follower relationship(s).
     Follower.objects.filter(follower=author, following=following).delete()
 
@@ -613,7 +667,7 @@ def unfollow(request, pk):
             follower=author,
             following__remote_id=following.remote_id,
         ).delete()
-    
+
     # Clean up any notifications related to this follow relationship
     Notification.objects.filter(
         recipient=author,
@@ -636,7 +690,7 @@ def unfollow(request, pk):
             "object": following.remote_id,
         }
         _post_remote_inbox(following.remote_id, payload)
-    
+
     return redirect("author-profile", pk=pk)
 
 
@@ -976,14 +1030,14 @@ def _post_remote_inbox(author_url, payload):
 
 def _looks_like_base64_image_blob(value):
     """Detect base64-encoded image data with high confidence.
-    
+
     Checks for:
     - Known image format signatures (JPEG, PNG, GIF, WebP, BMP, etc)
     - Long continuous alphanumeric strings that match base64 pattern
     - Excludes data URLs and real URLs
     """
     raw = (value or "").strip()
-    
+
     # Skip if too short, already a data URL, or looks like a real URL
     if len(raw) < 100:
         return False
@@ -992,27 +1046,27 @@ def _looks_like_base64_image_blob(value):
     # Skip slash-prefixed paths, but NOT /9j/ or similar base64 signatures
     if raw.startswith("/") and not any(c.isdigit() for c in raw[1:6]):
         return False
-    
+
     # Check for common image base64 signatures: jpeg, png, gif, webp, bmp, tiff
     if raw.startswith(("/9j/", "iVBOR", "R0lGOD", "UklGR", "QkI", "TU4g", "II4g")):
         return True
-    
+
     # Additional check: long base64-like string (mostly alphanumeric + /+= with good entropy)
     if len(raw) > 150:
         # Remove padding and common separators
         clean = raw.replace("=", "").replace("+", "").replace("/", "").replace("\n", "").replace("\r", "").replace(" ", "")
-        
+
         # If it's a very long continuous alphanumeric string, likely base64 encoded binary
         if re.match(r"^[A-Za-z0-9]{100,}$", clean):
             # Count uppercase/lowercase to filter out things like "aaaaaa..."
             upper = sum(1 for c in raw if c.isupper())
             lower = sum(1 for c in raw if c.islower())
             nums = sum(1 for c in raw if c.isdigit())
-            
+
             # Real base64 has good mix of cases and numbers
             if upper > 5 and lower > 5 and (upper + lower + nums) / len(raw) > 0.9:
                 return True
-    
+
     return False
 
 
@@ -1054,7 +1108,7 @@ def _store_remote_post(entry_payload, recipient):
     content_type = entry_payload.get("contentType") or "text/plain"
     visibility = (entry_payload.get("visibility") or "PUBLIC").upper()
     deleted_flag = bool(entry_payload.get("deleted", False))
-    
+
     allowed_visibilities = [
         Post.Visibility.PUBLIC,
         Post.Visibility.FRIENDS,
@@ -1230,7 +1284,7 @@ def author_search(request):
                     profile_image = ""
 
             results.append({
-                "id": f"{settings.SITE_URL}/api/authors/{user.id}",  
+                "id": f"{settings.SITE_URL}/api/authors/{user.id}",
                 "displayName": user.displayName or user.username,
                 "username": user.username,
                 "host": settings.SITE_URL,
