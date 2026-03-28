@@ -563,16 +563,16 @@ def send_a_follow_request(request):
         inbox_url = author_url.rstrip("/") + "/inbox/"
         node_url = _host_from_author_url(author_url)
         auth = _auth_for_node(node_url) if node_url else None
-        print("\n🚀 SENDING FOLLOW REQUEST")
-        print("INBOX URL:", inbox_url)
-        print("PAYLOAD:", data)
-        print("AUTH:", auth)
+        #print("\n🚀 SENDING FOLLOW REQUEST")
+        #print("INBOX URL:", inbox_url)
+        #print("PAYLOAD:", data)
+        #print("AUTH:", auth)
 
         try:
             requests.post(inbox_url, json=data, auth=auth, timeout=5)
         except Exception as e:
             import traceback
-            print("🔥 ERROR sending follow:", e)
+            #print("🔥 ERROR sending follow:", e)
             traceback.print_exc()
 
         return _redirect_back()
@@ -1184,18 +1184,7 @@ def api_author_inbox(request, pk):
 
     # Handles remote follow request delivered to this author's inbox.
     if activity_type == "follow":
-        #Printin statements--------------------
-        print("\n🔥🔥 FOLLOW REQUEST RECEIVED 🔥🔥")
-        print("RAW DATA:", payload)
-
-        actor = payload.get("actor", {})
-        print("ACTOR:", actor)
-        print("ACTOR ID:", actor.get("id"))
-
-        object_data = payload.get("object", {})
-        print("OBJECT:", object_data)
-        print("OBJECT ID:", object_data.get("id"))
-        #--------------------------------------
+        
         actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
         remote_follower = _upsert_remote_author(actor_payload)
         if not remote_follower:
