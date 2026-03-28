@@ -95,10 +95,39 @@ def author_profile(request, pk):
     if request.user != author:
         follow = _follow_relation(request.user, author)
 
-        if follow:
+                if follow:
             follow_status = follow.status
             if follow.status == "accepted":
                 is_following = True
+
+    # Auto-upgrade pending → accepted by checking remote followers endpoint
+    if follow_status == "pending" and author.is_remote and author.remote_id:
+        try:
+            node_url = _host_from_author_url(author.remote_id)
+            auth = _auth_for_node(node_url) if node_url else None
+            remote_author_url = author.remote_id.rstrip("/")
+            my_url = f"{settings.SITE_URL.rstrip('/')}/api/authors/{request.user.id}"
+
+            # Check if we're in their followers list
+            followers_url = f"{remote_author_url}/followers/"
+            resp = _try_get_json(followers_url, auth=auth, timeout=5)
+            if isinstance(resp, dict):
+                follower_items = resp.get("followers", resp.get("items", resp.get("src", [])))
+                if isinstance(follower_items, list):
+                    for f in follower_items:
+                        fid = (f.get("id") or f.get("url") or "").rstrip("/")
+                        if my_url.rstrip("/") in fid or fid in my_url.rstrip("/"):
+                            # We're accepted on their end! Update locally.
+                            follow_obj = _follow_relation(request.user, author)
+                            if follow_obj and follow_obj.status != "accepted":
+                                follow_obj.status = "accepted"
+                                follow_obj.save(update_fields=["status"])
+                                follow_status = "accepted"
+                                is_following = True
+                            break
+        except Exception:
+            pass
+                
     # 1. Determine if the person viewing is a mutual friend of the profile owner
     is_friend = False
     if request.user != author:
@@ -538,15 +567,17 @@ def send_a_follow_request(request):
             },
         '''
 
-        inbox_url = author_url.rstrip("/") + "/inbox"
+        base_inbox = author_url.rstrip("/") + "/inbox"
         node_url = _host_from_author_url(author_url)
         auth = _auth_for_node(node_url) if node_url else None
 
-        try:
-            requests.post(inbox_url, json=data, auth=auth, timeout=5)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
+        for inbox_url in [base_inbox, f"{base_inbox}/"]:
+            try:
+                resp = requests.post(inbox_url, json=data, auth=auth, timeout=5)
+                if resp.status_code in [200, 201, 202]:
+                    break
+            except Exception:
+                continue
 
         return _redirect_back()
 
@@ -1114,20 +1145,27 @@ def _local_author_payload(author):
         "type": "author",
         "id": author_url,
         "url": author_url,
-        "host": base,
+        "host": f"{base}/api/",
         "displayName": author.displayName or author.username,
+        "profileImage": getattr(author, "profileImage", "") or "",
+        "web": f"{base}/authors/{author.id}",
     }
 
 
 def _post_remote_inbox(author_url, payload):
-    inbox_url = author_url.rstrip("/") + "/inbox"
+    base_inbox = author_url.rstrip("/") + "/inbox"
     node_url = _host_from_author_url(author_url)
     auth = _auth_for_node(node_url) if node_url else None
-    try:
-        resp = requests.post(inbox_url, json=payload, auth=auth, timeout=5)
-        return resp.status_code in [200, 201, 202]
-    except Exception:
-        return False
+
+    # Try both /inbox and /inbox/ — some teams require the trailing slash
+    for inbox_url in [base_inbox, f"{base_inbox}/"]:
+        try:
+            resp = requests.post(inbox_url, json=payload, auth=auth, timeout=5)
+            if resp.status_code in [200, 201, 202]:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def _looks_like_base64_image_blob(value):
@@ -1296,7 +1334,7 @@ def api_author_inbox(request, pk):
         return JsonResponse({"detail": "Follow request received."}, status=201)
 
     # Handles acceptance callback so the requester node can mark status=accepted locally.
-    if activity_type == "follow_accepted":
+    if activity_type in ["follow_accepted", "accept", "accepted", "follow-accepted"]:
         actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
         remote_target = _upsert_remote_author(actor_payload)
         if not remote_target:
