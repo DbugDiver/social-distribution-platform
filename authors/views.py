@@ -95,7 +95,7 @@ def author_profile(request, pk):
     if request.user != author:
         follow = _follow_relation(request.user, author)
 
-                if follow:
+        if follow:
             follow_status = follow.status
             if follow.status == "accepted":
                 is_following = True
