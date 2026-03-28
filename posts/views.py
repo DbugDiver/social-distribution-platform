@@ -966,12 +966,52 @@ def _fetch_comments_from_post_object(post, auth_candidates):
 
 
 def _fetch_remote_comments(post, viewer=None, include_like_state=True):
-    data = None
-    working_url = None
-
-    candidate_urls = _candidate_remote_comments_urls(post)
+    """
+    Fetch remote comments. Comments might be:
+    1. Embedded in the post object itself
+    2. At a dedicated /comments endpoint
+    Try post object FIRST since that's the most reliable source.
+    """
     auth_candidates = _auth_candidates_for_post(post)
-
+    
+    # FIRST: Try fetching from the post object directly (most reliable)
+    items = _fetch_comments_from_post_object(post, auth_candidates) or []
+    
+    # If we got comments from post object, process them
+    if items:
+        normalized = []
+        for raw in items:
+            if not isinstance(raw, dict):
+                continue
+            
+            author = raw.get("author", {}) if isinstance(raw.get("author"), dict) else {}
+            likes_obj_raw = raw.get("likes")
+            likes_obj = likes_obj_raw if isinstance(likes_obj_raw, dict) else {}
+            comment_id = str(raw.get("id") or "").strip()
+            
+            normalized.append({
+                "id": comment_id,
+                "comment": raw.get("comment") or raw.get("content") or "",
+                "content_type": raw.get("contentType") or raw.get("content_type") or "text/plain",
+                "published": raw.get("published") or raw.get("created") or "",
+                "author_name": (
+                    author.get("displayName")
+                    or author.get("username")
+                    or author.get("name")
+                    or "Remote Author"
+                ),
+                "author_id": author.get("id") or author.get("url") or "",
+                "like_count": likes_obj.get("count") or raw.get("likeCount") or 0,
+                "likes_url": likes_obj.get("id") or likes_obj.get("url") or "",
+                "liked_by_me": False,
+            })
+        if normalized:
+            return normalized
+    
+    # FALLBACK: Try dedicated comment endpoints
+    data = None
+    candidate_urls = _candidate_remote_comments_urls(post)
+    
     for candidate_url in candidate_urls:
         for auth in auth_candidates:
             try:
@@ -986,14 +1026,13 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
 
                 try:
                     payload = resp.json()
-                except Exception as e:
+                except Exception:
                     continue
 
                 data = payload
-                working_url = candidate_url
                 break
 
-            except Exception as e:
+            except Exception:
                 continue
 
         if data is not None:
@@ -1032,15 +1071,8 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
     if isinstance(items, dict):
         items = [items]
 
-    if not isinstance(items, list) or (not items and isinstance(data, dict) and data.get("count")):
-        # If we got count-only response (no actual comments), try fetching post directly
-        # to see if comments are embedded in the post object
-        if not items and isinstance(data, dict) and data.get("count"):
-            items = _fetch_comments_from_post_object(post, auth_candidates) or []
-        
-        # If still no items and it's not a list, return empty
-        if not isinstance(items, list):
-            return []
+    if not isinstance(items, list):
+        return []
 
     normalized = []
 
