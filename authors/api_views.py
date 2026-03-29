@@ -361,7 +361,16 @@ def api_accept_reject_followers(request, pk, foreign_id):
     print("Headers:", dict(request.headers))
     print("-----------------------")
     # decode foreign author
-    decoded_id = unquote(foreign_id)
+    #decoded_id = unquote(foreign_id)
+    decoded_id = foreign_id
+    print(f"decoding beofre = foreign_id: {decoded_id}")
+    # Decode ONLY if encoded
+    if "%" in decoded_id:
+        decoded_id = unquote(decoded_id)
+        print(f"After decodeing using unquote: {decoded_id}")
+
+    decoded_id = decoded_id.rstrip("/")
+    print(f"After decodeing using rstrip: {decoded_id}")
 
     if not decoded_id.startswith("http"):
         print("Invalid FQID format")
