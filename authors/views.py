@@ -1033,7 +1033,9 @@ def _upsert_remote_author(author_payload):
     if not remote_id:
         return None
 
-    canonical_remote_id = _canonical_remote_author_id(remote_id)
+    #canonical_remote_id = _canonical_remote_author_id(remote_id)
+    canonical_remote_id = remote_id.strip().rstrip("/")
+    canonical_remote_id = canonical_remote_id.replace("/api/api/", "/api/")
     remote_id_candidates = _remote_author_id_variants(remote_id)
 
     # ALWAYS look up by remote_id first - this is the canonical identifier
