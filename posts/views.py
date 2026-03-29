@@ -312,6 +312,30 @@ def _normalize_remote_post(raw, node_url):
 
     # FIX (Change 4): normalize remote_author_url so URL-variant matching works correctly
     raw_author_url = author.get("id") or author.get("url") or ""
+    remote_author_name = author.get("displayName") or author.get("username") or "Remote Author"
+
+    # Prefer locally cached remote-author display names to handle remote rename changes.
+    normalized_author_url = _normalize_author_id(raw_author_url)
+    if normalized_author_url:
+        match = (
+            Author.objects
+            .filter(is_remote=True, remote_id__in=_author_ref_variants(normalized_author_url))
+            .only("displayName", "username")
+            .first()
+        )
+        if match:
+            cached_name = (match.displayName or match.username or "").strip()
+            if cached_name and not _looks_like_uuid_text(cached_name):
+                remote_author_name = cached_name
+
+    if _looks_like_uuid_text(remote_author_name):
+        fetched = _fetch_remote_author_display_name(
+            normalized_author_url or raw_author_url,
+            node_url.rstrip("/"),
+            [_auth_for_node(node_url.rstrip("/")), None],
+        )
+        if fetched:
+            remote_author_name = fetched
 
     return {
         "remote_id": str(remote_post_id).strip() if remote_post_id else "",
@@ -321,8 +345,8 @@ def _normalize_remote_post(raw, node_url):
         "visibility": _normalize_visibility_value(raw.get("visibility")),
         "published": raw.get("published") or raw.get("created") or raw.get("updated"),
         "node_url": node_url.rstrip("/"),
-        "remote_author_url": _normalize_author_id(raw_author_url),
-        "remote_author_name": author.get("displayName") or author.get("username") or "Remote Author",
+        "remote_author_url": normalized_author_url,
+        "remote_author_name": remote_author_name,
         "remote_author_host": author.get("host") or node_url.rstrip("/"),
         "remote_author_image": remote_author_image,
         "remote_image": image_url,
@@ -1003,7 +1027,72 @@ def _author_ref_variants(author_ref):
     return deduped
 
 
-def _resolve_comment_author_name(raw_comment):
+def _remote_author_doc_candidates(author_ref, node_url=""):
+    ref = (author_ref or "").strip().rstrip("/")
+    base = (node_url or "").strip().rstrip("/")
+    urls = []
+
+    if ref.startswith("http://") or ref.startswith("https://"):
+        urls.extend(_author_ref_variants(ref))
+    elif _looks_like_uuid_text(ref) and base:
+        urls.extend(
+            [
+                f"{base}/api/authors/{ref}",
+                f"{base}/authors/{ref}",
+                f"{base}/authors/api/authors/{ref}",
+                f"{base}/api/public/authors/{ref}",
+            ]
+        )
+
+    deduped = []
+    seen = set()
+    for value in urls:
+        for v in _url_variants(value):
+            if v and v not in seen:
+                deduped.append(v)
+                seen.add(v)
+    return deduped
+
+
+def _fetch_remote_author_display_name(author_ref, node_url, auth_candidates):
+    key = f"remote-author-display:{(node_url or '').rstrip('/')}:{(author_ref or '').strip()}"
+    cached = cache.get(key)
+    if cached:
+        return cached
+
+    for url in _remote_author_doc_candidates(author_ref, node_url):
+        for auth in (auth_candidates or []):
+            try:
+                resp = requests.get(
+                    url,
+                    auth=auth,
+                    timeout=2.5,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.status_code != 200:
+                    continue
+
+                payload = resp.json()
+                if not isinstance(payload, dict):
+                    continue
+
+                name = (
+                    payload.get("displayName")
+                    or payload.get("username")
+                    or payload.get("name")
+                    or ""
+                ).strip()
+
+                if name:
+                    cache.set(key, name, 300)
+                    return name
+            except Exception:
+                continue
+
+    return ""
+
+
+def _resolve_comment_author_name(raw_comment, node_url="", auth_candidates=None):
     if not isinstance(raw_comment, dict):
         return "Remote Author", ""
 
@@ -1028,8 +1117,11 @@ def _resolve_comment_author_name(raw_comment):
     if name and not _looks_like_uuid_text(name):
         return name, author_ref
 
-    # Fallback: resolve display name from local remote-author proxy cache.
-    for candidate in _author_ref_variants(author_ref):
+    candidates = _author_ref_variants(author_ref)
+    if _looks_like_uuid_text(author_ref) and node_url:
+        candidates.extend(_remote_author_doc_candidates(author_ref, node_url))
+
+    for candidate in candidates:
         match = (
             Author.objects
             .filter(is_remote=True, remote_id=candidate)
@@ -1040,6 +1132,10 @@ def _resolve_comment_author_name(raw_comment):
             resolved = (match.displayName or match.username or "").strip()
             if resolved:
                 return resolved, author_ref
+
+    fetched = _fetch_remote_author_display_name(author_ref, node_url, auth_candidates or [])
+    if fetched:
+        return fetched, author_ref
 
     return name or "Remote Author", author_ref
 
@@ -1067,7 +1163,7 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
             likes_obj_raw = raw.get("likes")
             likes_obj = likes_obj_raw if isinstance(likes_obj_raw, dict) else {}
             comment_id = str(raw.get("id") or "").strip()
-            author_name, author_id = _resolve_comment_author_name(raw)
+            author_name, author_id = _resolve_comment_author_name(raw, post.node_url, auth_candidates)
             
             normalized.append({
                 "id": comment_id,
@@ -1158,7 +1254,7 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
         author = raw.get("author", {}) if isinstance(raw.get("author"), dict) else {}
         likes_obj_raw = raw.get("likes")
         likes_obj = likes_obj_raw if isinstance(likes_obj_raw, dict) else {}
-        author_name, author_id = _resolve_comment_author_name(raw)
+        author_name, author_id = _resolve_comment_author_name(raw, post.node_url, auth_candidates)
 
         comment_id = str(raw.get("id") or "").strip()
 
@@ -1273,7 +1369,7 @@ def _send_remote_comment(user, post, text):
 
     auth_candidates = _auth_candidates_for_post(post)
     payload_variants = []
-    for object_id in _candidate_remote_object_ids(post)[:4]:
+    for object_id in _candidate_remote_object_ids(post)[:8]:
         base_payload = {
             "type": "comment",
             "id": f"{base_url}/api/authors/{user.id}/commented/{comment_id}",
@@ -1287,10 +1383,12 @@ def _send_remote_comment(user, post, text):
         }
         payload_variants.append(base_payload)
         payload_variants.append({**base_payload, "type": "Comment"})
-    max_attempts = 18
+        payload_variants.append({**base_payload, "type": "comments"})
+        payload_variants.append({**base_payload, "type": "Comments"})
+    max_attempts = 40
     attempts = 0
 
-    for comments_url in _candidate_remote_comments_urls(post)[:6]:
+    for comments_url in _candidate_remote_comments_urls(post)[:8]:
         for candidate_payload in payload_variants:
             for auth in auth_candidates:
                 if attempts >= max_attempts:
@@ -1301,7 +1399,7 @@ def _send_remote_comment(user, post, text):
                         comments_url,
                         json=candidate_payload,
                         auth=auth,
-                        timeout=2.5,
+                        timeout=2.2,
                         allow_redirects=False,
                         headers={
                             "Accept": "application/json",
@@ -1324,7 +1422,7 @@ def _send_remote_comment(user, post, text):
                         inbox_url,
                         json=candidate_payload,
                         auth=auth,
-                        timeout=2.5,
+                        timeout=2.2,
                         allow_redirects=False,
                         headers={
                             "Accept": "application/json",
@@ -1347,7 +1445,7 @@ def _send_remote_comment(user, post, text):
                         node_inbox,
                         json=candidate_payload,
                         auth=auth,
-                        timeout=2.5,
+                        timeout=2.2,
                         allow_redirects=False,
                         headers={
                             "Accept": "application/json",
@@ -1485,18 +1583,37 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
         },
     ]
 
-    like_urls = _post_url_variants(likes_url)
-    auth_candidates = _auth_candidates_for_post(post)
+    like_urls = list(_post_url_variants(likes_url))
+    if comment_object:
+        if comment_object.startswith("http://") or comment_object.startswith("https://"):
+            like_urls.extend(_post_url_variants(f"{comment_object.rstrip('/')}/likes"))
+        else:
+            for comments_url in _candidate_remote_comments_urls(post)[:8]:
+                like_urls.extend(_post_url_variants(f"{comments_url.rstrip('/')}/{comment_object}/likes"))
 
-    for candidate_url in like_urls:
+    dedup_like_urls = []
+    seen_like = set()
+    for value in like_urls:
+        if value and value not in seen_like:
+            dedup_like_urls.append(value)
+            seen_like.add(value)
+
+    auth_candidates = _auth_candidates_for_post(post)
+    attempts = 0
+    max_attempts = 24
+
+    for candidate_url in dedup_like_urls[:10]:
         for candidate_payload in payload_variants:
             for auth in auth_candidates:
+                if attempts >= max_attempts:
+                    return False
+                attempts += 1
                 try:
                     resp = requests.post(
                         candidate_url,
                         json=candidate_payload,
                         auth=auth,
-                        timeout=5,
+                        timeout=2.2,
                         allow_redirects=False,
                         headers={
                             "Accept": "application/json",
