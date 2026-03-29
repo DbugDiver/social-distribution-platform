@@ -974,6 +974,19 @@ def _candidate_remote_inbox_urls(post):
     for author_url in _candidate_remote_author_urls(post):
         inboxes.extend(_post_url_variants(f"{author_url.rstrip('/')}/inbox/"))
 
+    # Fallback: derive inbox directly from remote_id when remote_author_url is missing.
+    remote_id = str(getattr(post, "remote_id", "") or "").strip().rstrip("/")
+    node_base = str(getattr(post, "node_url", "") or "").strip().rstrip("/")
+    if remote_id and node_base:
+        parts = [part for part in remote_id.split("/") if part]
+        if "authors" in parts:
+            try:
+                author_idx = parts.index("authors")
+                author_part = parts[author_idx + 1]
+                inboxes.extend(_post_url_variants(f"{node_base}/api/authors/{author_part}/inbox/"))
+            except Exception:
+                pass
+
     deduped = []
     seen = set()
     for value in inboxes:
@@ -1532,7 +1545,7 @@ def _send_remote_comment(user, post, text):
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
-                            logger.info(
+                            logger.warning(
                                 "FED_COMMENT_OK status=%s mode=%s url=%s object=%s",
                                 resp.status_code,
                                 auth_mode,
@@ -1585,7 +1598,7 @@ def _send_remote_comment(user, post, text):
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
-                            logger.info(
+                            logger.warning(
                                 "FED_COMMENT_INBOX_OK status=%s mode=%s url=%s object=%s",
                                 resp.status_code,
                                 auth_mode,
@@ -1637,7 +1650,7 @@ def _send_remote_comment(user, post, text):
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
-                            logger.info(
+                            logger.warning(
                                 "FED_COMMENT_NODE_INBOX_OK status=%s mode=%s url=%s object=%s",
                                 resp.status_code,
                                 auth_mode,
@@ -1833,7 +1846,7 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
-                            logger.info(
+                            logger.warning(
                                 "FED_COMMENT_LIKE_OK status=%s mode=%s url=%s object=%s",
                                 resp.status_code,
                                 auth_mode,
@@ -1881,7 +1894,7 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
-                            logger.info(
+                            logger.warning(
                                 "FED_COMMENT_LIKE_INBOX_OK status=%s mode=%s url=%s object=%s",
                                 resp.status_code,
                                 auth_mode,
