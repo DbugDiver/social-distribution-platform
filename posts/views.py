@@ -682,11 +682,18 @@ def _candidate_remote_comments_urls(post):
     node_base = str(post.node_url or "").rstrip("/")
 
     if remote_id:
-        # 1. Direct: remote_id + /comments
+        # 1. Prefer /posts/ comment endpoints before /entries/ for remote writes.
+        # Some nodes expose /entries/ for reads but only allow POST on /posts/.
+        if "/entries/" in remote_id:
+            posts_variant = remote_id.replace("/entries/", "/posts/")
+            urls.extend(_post_url_variants(posts_variant + "/comments"))
+            urls.extend(_post_url_variants(posts_variant + "/comment"))
+
+        # 2. Direct: remote_id + /comments
         urls.extend(_post_url_variants(remote_id + "/comments"))
         urls.extend(_post_url_variants(remote_id + "/comment"))
 
-        # 2. /api/entries/{uuid}/comments/ (no author prefix)
+        # 3. /api/entries/{uuid}/comments/ (no author prefix)
         if node_base:
             for marker in ["/entries/", "/posts/"]:
                 if marker in remote_id:
@@ -698,7 +705,7 @@ def _candidate_remote_comments_urls(post):
                         urls.extend(_post_url_variants(f"{node_base}/api/posts/{entry_id}/comment"))
                     break
 
-        # 3. /api/public/ variant
+        # 4. /api/public/ variant
         if "/api/authors/" in remote_id:
             public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments"
             urls.extend(_post_url_variants(public_path))
@@ -712,7 +719,7 @@ def _candidate_remote_comments_urls(post):
             urls.extend(_post_url_variants(api_path.replace("/comments", "/comment")))
             urls.extend(_post_url_variants(public_path.replace("/comments", "/comment")))
 
-        # 4. /entries/ ↔ /posts/ cross-variants
+        # 5. /entries/ ↔ /posts/ cross-variants
         if "/entries/" in remote_id:
             posts_variant = remote_id.replace("/entries/", "/posts/")
             urls.extend(_post_url_variants(posts_variant + "/comments"))
@@ -730,7 +737,7 @@ def _candidate_remote_comments_urls(post):
                     entries_variant.replace("/api/authors/", "/api/public/authors/") + "/comments"
                 ))
 
-        # 5. FQID-based
+        # 6. FQID-based
         if node_base:
             encoded_fqid = quote(remote_id, safe="")
             fqid_comments_url = f"{node_base}/api/entries/{encoded_fqid}/comments/"
@@ -1406,7 +1413,7 @@ def _send_remote_comment(user, post, text):
         auth_candidates = [None]
     last_error = ""
     payload_variants = []
-    for object_id in _candidate_remote_object_ids(post)[:8]:
+    for object_id in _candidate_remote_object_ids(post)[:2]:
         base_payload = {
             "type": "comment",
             "id": f"{base_url}/api/authors/{user.id}/commented/{comment_id}",
@@ -1421,14 +1428,26 @@ def _send_remote_comment(user, post, text):
         }
         payload_variants.append(base_payload)
         payload_variants.append({**base_payload, "type": "Comment"})
-        payload_variants.append({**base_payload, "type": "comments"})
-        payload_variants.append({**base_payload, "type": "Comments"})
         payload_variants.append({**base_payload, "author": _local_author_payload(user).get("id")})
+
+    # Keep payload count bounded so retries can cover multiple endpoint candidates.
+    dedup_payloads = []
+    seen_payloads = set()
+    for payload in payload_variants:
+        key = repr(sorted(payload.items()))
+        if key not in seen_payloads:
+            dedup_payloads.append(payload)
+            seen_payloads.add(key)
+    payload_variants = dedup_payloads[:4]
+
+    candidate_comments_urls = list(_candidate_remote_comments_urls(post))
+    candidate_comments_urls.sort(key=lambda u: ("/entries/" in u, "/comment" in u and "/comments" not in u))
+
     max_attempts = 40
     attempts = 0
 
-    for comments_url in _candidate_remote_comments_urls(post)[:8]:
-        for candidate_payload in payload_variants:
+    for candidate_payload in payload_variants:
+        for comments_url in candidate_comments_urls[:10]:
             for auth in auth_candidates:
                 if attempts >= max_attempts:
                     return False, last_error
