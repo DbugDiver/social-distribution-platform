@@ -2176,7 +2176,7 @@ def stream(request):
                     if current_visibility is None:
                         print("Failed to reach other node")
                         pass
-                    
+
                         '''
                         # Couldn't reach the remote — hide to be safe
                         p._hide_from_stream = True
@@ -2939,7 +2939,10 @@ def followers_feed(request):
         .exclude(remote_id="")
         .values_list("remote_id", flat=True)
     ):
-        remote_friend_urls.update(_author_url_variants(remote_id))
+        #remote_friend_urls.update(_author_url_variants(remote_id))
+        normalized = _normalize_author_id(remote_id)
+        if normalized:
+            remote_friend_urls.add(normalized)
 
     for remote_id in (
         Author.objects.filter(id__in=following_ids, is_remote=True)
@@ -2947,7 +2950,10 @@ def followers_feed(request):
         .exclude(remote_id="")
         .values_list("remote_id", flat=True)
     ):
-        remote_following_urls.update(_author_url_variants(remote_id))
+        #remote_following_urls.update(_author_url_variants(remote_id))
+        normalized = _normalize_author_id(remote_id)
+        if normalized:
+            remote_following_urls.add(normalized)
 
     posts = Post.objects.filter(deleted=False).exclude(title__startswith="GitHub").filter(
         Q(author_id__in=following_ids, visibility=Post.Visibility.UNLISTED, is_remote=False)
