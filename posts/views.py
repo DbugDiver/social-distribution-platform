@@ -589,13 +589,16 @@ def _check_remote_post_visibility(post):
                 # Got 200 but couldn't parse — assume still accessible
                 return post.visibility
 
-            if resp.status_code in [403, 401]:
+
+            if resp.status_code in [403, 401]: # this would alwasy be 403 -> bug
                 print(f"Post failed to verify visibility: {resp.status_code}")
                 # Access denied — post was restricted
+                '''
                 Post.objects.filter(id=post.id).update(
                     visibility=Post.Visibility.FRIENDS
                 )
-                return False
+                '''
+                return post.visibility
 
             if resp.status_code == 404:
                 # Post was deleted on remote
@@ -2157,8 +2160,8 @@ def stream(request):
                     # Remote says this post is now FRIENDS or UNLISTED.
                     # Update our cache and hide it.
                     Post.objects.filter(id=p.id).update(visibility=current_visibility)
-                    p._hide_from_stream = True
-                    refreshed_remote += 1
+                    #p._hide_from_stream = True
+                    #refreshed_remote += 1
                     continue
 
                 if current_visibility is False:
@@ -2173,6 +2176,7 @@ def stream(request):
                     if current_visibility is None:
                         print("Failed to reach other node")
                         pass
+                    
                         '''
                         # Couldn't reach the remote — hide to be safe
                         p._hide_from_stream = True
