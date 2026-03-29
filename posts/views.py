@@ -1403,7 +1403,7 @@ def _send_remote_comment(user, post, text):
         for candidate_payload in payload_variants:
             for auth in auth_candidates:
                 if attempts >= max_attempts:
-                    return False
+                    return False, last_error
                 attempts += 1
                 try:
                     resp = requests.post(
