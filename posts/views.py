@@ -126,6 +126,7 @@ def _extract_collection_items(data):
 
 def _normalize_visibility_value(value):
     raw = (value or Post.Visibility.PUBLIC).strip().upper()
+    print(f"Herre is raw Value = {raw}")
     if raw == "PUBLIC":
         return Post.Visibility.PUBLIC
     if raw in {"FRIENDS", "FRIENDS_ONLY"}:

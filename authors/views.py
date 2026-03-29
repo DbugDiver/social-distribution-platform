@@ -1338,7 +1338,8 @@ def _store_remote_post(entry_payload, recipient):
             "content": content,
             "content_type": content_type,
             "visibility": visibility,
-            "author": recipient,
+            #"author": recipient,
+            "author":remote_author,
             "is_remote": True,
             "remote_author_url": remote_author.remote_id,
             "remote_author_name": remote_author.displayName or remote_author.username,
@@ -1358,8 +1359,10 @@ def _store_remote_post(entry_payload, recipient):
         post.visibility = visibility
         post.remote_author_url = remote_author.remote_id
         post.remote_author_name = remote_author.displayName or remote_author.username
-        post.remote_author_host = remote_author.host or ""
-        post.node_url = remote_author.host or ""
+        #post.remote_author_host = remote_author.host or ""
+        post.remote_author_host = (remote_author.host or "").rstrip("/")
+        #post.node_url = remote_author.host or ""
+        post.node_url = (remote_author.host or "").replace("/api", "").rstrip("/")
         post.remote_image = remote_image
         post.deleted = deleted_flag
         post.save()
