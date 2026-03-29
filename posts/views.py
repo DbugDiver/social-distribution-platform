@@ -1491,9 +1491,10 @@ def _send_remote_comment(user, post, text):
                 except Exception as ex:
                     transient_error = str(ex)
                     if "IncompleteRead" in transient_error or "Connection broken" in transient_error:
-                        # Some nodes persist the comment but return a truncated response body.
-                        # Treat this transport error as success to avoid false negatives.
-                        return True, ""
+                        # Do not treat transport truncation as success.
+                        # Keep trying other endpoints (especially inbox routes).
+                        last_error = f"EXC {auth_mode} {comments_url} {transient_error}"[:220]
+                        continue
                     last_error = f"EXC {auth_mode} {comments_url} {str(ex)}"[:220]
                     continue
 
@@ -1710,11 +1711,63 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
         for candidate_payload in payload_variants:
             for auth in auth_candidates:
                 if attempts >= max_attempts:
-                    return False
+                    break
                 attempts += 1
                 try:
                     with requests.post(
                         candidate_url,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=2.2,
+                        allow_redirects=False,
+                        stream=True,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                            "Connection": "close",
+                        },
+                    ) as resp:
+                        if resp.status_code in [200, 201, 202, 204, 409]:
+                            return True
+                except Exception:
+                    continue
+
+    attempts = 0
+    for inbox_url in _candidate_remote_inbox_urls(post)[:4]:
+        for candidate_payload in payload_variants:
+            for auth in auth_candidates:
+                if attempts >= max_attempts:
+                    break
+                attempts += 1
+                try:
+                    with requests.post(
+                        inbox_url,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=2.2,
+                        allow_redirects=False,
+                        stream=True,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                            "Connection": "close",
+                        },
+                    ) as resp:
+                        if resp.status_code in [200, 201, 202, 204, 409]:
+                            return True
+                except Exception:
+                    continue
+
+    attempts = 0
+    for node_inbox in _candidate_node_inbox_urls(post.node_url)[:2]:
+        for candidate_payload in payload_variants:
+            for auth in auth_candidates:
+                if attempts >= max_attempts:
+                    break
+                attempts += 1
+                try:
+                    with requests.post(
+                        node_inbox,
                         json=candidate_payload,
                         auth=auth,
                         timeout=2.2,
