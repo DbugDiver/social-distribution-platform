@@ -374,7 +374,7 @@ def api_accept_reject_followers(request, pk, foreign_id):
 
     if not decoded_id.startswith("http"):
         print("Invalid FQID format")
-    return Response({"detail": "Invalid FQID"}, status=400)
+        return Response({"detail": "Invalid FQID"}, status=400)
     decoded_id = unquote(foreign_id).rstrip("/")
     
     target = get_object_or_404(Author, pk=pk)
