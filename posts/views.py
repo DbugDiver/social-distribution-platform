@@ -5,6 +5,7 @@ import re
 from functools import lru_cache
 from urllib.parse import urljoin
 from urllib.parse import quote
+from urllib.parse import urlsplit
 import markdown as md
 import requests
 import uuid
@@ -839,8 +840,33 @@ def _candidate_remote_likes_urls(post):
 
 
 def _auth_candidates_for_post(post):
-    auth = _auth_for_node(post.node_url.rstrip("/")) if post.node_url else None
-    return [auth, None] if auth else [None]
+    host_candidates = []
+
+    for raw in [
+        getattr(post, "node_url", "") or "",
+        str(getattr(post, "remote_id", "") or ""),
+        str(getattr(post, "remote_author_url", "") or ""),
+    ]:
+        value = (raw or "").strip()
+        if not value:
+            continue
+        host_candidates.append(value.rstrip("/"))
+        try:
+            parsed = urlsplit(value)
+            if parsed.scheme and parsed.netloc:
+                host_candidates.append(f"{parsed.scheme}://{parsed.netloc}")
+        except Exception:
+            pass
+
+    auths = []
+    seen = set()
+    for host in host_candidates:
+        auth = _auth_for_node(host)
+        if auth and auth not in seen:
+            auths.append(auth)
+            seen.add(auth)
+
+    return auths + [None] if auths else [None]
 
 
 def _candidate_remote_author_urls(post):
