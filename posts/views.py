@@ -125,6 +125,7 @@ def _extract_collection_items(data):
 
 
 def _normalize_visibility_value(value):
+    print(f"Herre is passed raw Value = {raw}")
     raw = (value or Post.Visibility.PUBLIC).strip().upper()
     print(f"Herre is raw Value = {raw}")
     if raw == "PUBLIC":

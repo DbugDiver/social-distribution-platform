@@ -1314,6 +1314,8 @@ def _store_remote_post(entry_payload, recipient):
     if not remote_author:
         return None
 
+    visibility = (entry_payload.get("visibility") or "PUBLIC").upper()
+    print(f"Inobox -> _store_remote_post : {visibility} -> should be Friends ")
     title = (entry_payload.get("title") or "").strip()
     remote_image, content = _extract_remote_image_and_content(entry_payload)
     content_type = entry_payload.get("contentType") or "text/plain"
@@ -1330,7 +1332,7 @@ def _store_remote_post(entry_payload, recipient):
 
     if content_type not in ["text/plain", "text/markdown"]:
         content_type = "text/plain"
-
+    print(f"Visibility before creatign post: {visibility}: Should be Friends")
     post, created = Post.objects.get_or_create(
         remote_id=remote_post_id,
         defaults={
