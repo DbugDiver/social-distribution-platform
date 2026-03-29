@@ -372,10 +372,11 @@ def api_accept_reject_followers(request, pk, foreign_id):
     decoded_id = decoded_id.rstrip("/")
     print(f"After decodeing using rstrip: {decoded_id}")
 
+    '''
     if not decoded_id.startswith("http"):
         print("Invalid FQID format")
         return Response({"detail": "Invalid FQID"}, status=400)
-    decoded_id = unquote(foreign_id).rstrip("/")
+    '''
     
     target = get_object_or_404(Author, pk=pk)
     # find or create remote follower
@@ -390,7 +391,7 @@ def api_accept_reject_followers(request, pk, foreign_id):
         )
     '''
     if not remote_follower:
-        uuid = decoded_id.rstrip("/").split("/")[-1]
+        uuid = decoded_id.split("/")[-1]
         remote_follower = Author.objects.filter(id=uuid).first()
 
     if not remote_follower:
@@ -401,15 +402,16 @@ def api_accept_reject_followers(request, pk, foreign_id):
     # =========================
     if request.method == "GET":
         '''
-        relation = Follower.objects.filter(
-            follower=remote_follower,
+         relation = Follower.objects.filter(
+            follower__remote_id=decoded_id,
             following=target,
             status="accepted"
         ).first()
         '''
         
+       
         relation = Follower.objects.filter(
-            follower__remote_id=decoded_id,
+            follower=remote_follower,
             following=target,
             status="accepted"
         ).first()
