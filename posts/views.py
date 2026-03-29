@@ -1401,7 +1401,9 @@ def _send_remote_comment(user, post, text):
     comment_id = str(uuid.uuid4())
     base_url = _site_url()
 
-    auth_candidates = _auth_candidates_for_post(post)
+    auth_candidates = [a for a in _auth_candidates_for_post(post) if a]
+    if not auth_candidates:
+        auth_candidates = [None]
     last_error = ""
     payload_variants = []
     for object_id in _candidate_remote_object_ids(post)[:8]:
@@ -1432,6 +1434,7 @@ def _send_remote_comment(user, post, text):
                     return False, last_error
                 attempts += 1
                 try:
+                    auth_mode = "auth" if auth else "noauth"
                     resp = requests.post(
                         comments_url,
                         json=candidate_payload,
@@ -1450,9 +1453,9 @@ def _send_remote_comment(user, post, text):
                         body = (resp.text or "").strip().replace("\n", " ")[:180]
                     except Exception:
                         body = ""
-                    last_error = f"{resp.status_code} {comments_url} {body}".strip()
+                    last_error = f"{resp.status_code} {auth_mode} {comments_url} {body}".strip()
                 except Exception as ex:
-                    last_error = f"EXC {comments_url} {str(ex)}"[:220]
+                    last_error = f"EXC {auth_mode} {comments_url} {str(ex)}"[:220]
                     continue
 
     for inbox_url in _candidate_remote_inbox_urls(post)[:4]:
@@ -1462,6 +1465,7 @@ def _send_remote_comment(user, post, text):
                     return False, last_error
                 attempts += 1
                 try:
+                    auth_mode = "auth" if auth else "noauth"
                     resp = requests.post(
                         inbox_url,
                         json=candidate_payload,
@@ -1480,9 +1484,9 @@ def _send_remote_comment(user, post, text):
                         body = (resp.text or "").strip().replace("\n", " ")[:180]
                     except Exception:
                         body = ""
-                    last_error = f"{resp.status_code} {inbox_url} {body}".strip()
+                    last_error = f"{resp.status_code} {auth_mode} {inbox_url} {body}".strip()
                 except Exception as ex:
-                    last_error = f"EXC {inbox_url} {str(ex)}"[:220]
+                    last_error = f"EXC {auth_mode} {inbox_url} {str(ex)}"[:220]
                     continue
 
     for node_inbox in _candidate_node_inbox_urls(post.node_url)[:2]:
@@ -1492,6 +1496,7 @@ def _send_remote_comment(user, post, text):
                     return False, last_error
                 attempts += 1
                 try:
+                    auth_mode = "auth" if auth else "noauth"
                     resp = requests.post(
                         node_inbox,
                         json=candidate_payload,
@@ -1510,9 +1515,9 @@ def _send_remote_comment(user, post, text):
                         body = (resp.text or "").strip().replace("\n", " ")[:180]
                     except Exception:
                         body = ""
-                    last_error = f"{resp.status_code} {node_inbox} {body}".strip()
+                    last_error = f"{resp.status_code} {auth_mode} {node_inbox} {body}".strip()
                 except Exception as ex:
-                    last_error = f"EXC {node_inbox} {str(ex)}"[:220]
+                    last_error = f"EXC {auth_mode} {node_inbox} {str(ex)}"[:220]
                     continue
 
     return False, last_error
@@ -1656,7 +1661,9 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
             dedup_like_urls.append(value)
             seen_like.add(value)
 
-    auth_candidates = _auth_candidates_for_post(post)
+    auth_candidates = [a for a in _auth_candidates_for_post(post) if a]
+    if not auth_candidates:
+        auth_candidates = [None]
     attempts = 0
     max_attempts = 24
 
