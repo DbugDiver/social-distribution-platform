@@ -6,6 +6,7 @@ from functools import lru_cache
 from urllib.parse import urljoin
 from urllib.parse import quote
 from urllib.parse import urlsplit
+import logging
 import markdown as md
 import requests
 import uuid
@@ -21,6 +22,8 @@ from authors.models import Author, Follower
 from node.registry import get_configured_nodes, get_node_auth
 from .forms import PostForm
 from .models import Comment, Like, Post
+
+logger = logging.getLogger(__name__)
 
 # ---------- Markdown ----------
 
@@ -1513,6 +1516,7 @@ def _send_remote_comment(user, post, text):
                 attempts += 1
                 try:
                     auth_mode = "auth" if auth else "noauth"
+                    payload_object = str(candidate_payload.get("object", ""))[:120]
                     with requests.post(
                         comments_url,
                         json=candidate_payload,
@@ -1527,9 +1531,29 @@ def _send_remote_comment(user, post, text):
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
+                            logger.info(
+                                "FED_COMMENT_OK status=%s mode=%s url=%s object=%s",
+                                resp.status_code,
+                                auth_mode,
+                                comments_url,
+                                payload_object,
+                            )
                             return True, ""
+                        logger.warning(
+                            "FED_COMMENT_FAIL status=%s mode=%s url=%s object=%s",
+                            resp.status_code,
+                            auth_mode,
+                            comments_url,
+                            payload_object,
+                        )
                         last_error = f"{resp.status_code} {auth_mode} {comments_url}".strip()
                 except Exception as ex:
+                    logger.warning(
+                        "FED_COMMENT_EXC mode=%s url=%s err=%s",
+                        auth_mode,
+                        comments_url,
+                        str(ex)[:180],
+                    )
                     transient_error = str(ex)
                     last_error = f"EXC {auth_mode} {comments_url} {str(ex)}"[:220]
                     continue
@@ -1545,6 +1569,7 @@ def _send_remote_comment(user, post, text):
                 attempts += 1
                 try:
                     auth_mode = "auth" if auth else "noauth"
+                    payload_object = str(candidate_payload.get("object", ""))[:120]
                     with requests.post(
                         inbox_url,
                         json=candidate_payload,
@@ -1559,9 +1584,29 @@ def _send_remote_comment(user, post, text):
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
+                            logger.info(
+                                "FED_COMMENT_INBOX_OK status=%s mode=%s url=%s object=%s",
+                                resp.status_code,
+                                auth_mode,
+                                inbox_url,
+                                payload_object,
+                            )
                             return True, ""
+                        logger.warning(
+                            "FED_COMMENT_INBOX_FAIL status=%s mode=%s url=%s object=%s",
+                            resp.status_code,
+                            auth_mode,
+                            inbox_url,
+                            payload_object,
+                        )
                         last_error = f"{resp.status_code} {auth_mode} {inbox_url}".strip()
                 except Exception as ex:
+                    logger.warning(
+                        "FED_COMMENT_INBOX_EXC mode=%s url=%s err=%s",
+                        auth_mode,
+                        inbox_url,
+                        str(ex)[:180],
+                    )
                     last_error = f"EXC {auth_mode} {inbox_url} {str(ex)}"[:220]
                     continue
 
@@ -1576,6 +1621,7 @@ def _send_remote_comment(user, post, text):
                 attempts += 1
                 try:
                     auth_mode = "auth" if auth else "noauth"
+                    payload_object = str(candidate_payload.get("object", ""))[:120]
                     with requests.post(
                         node_inbox,
                         json=candidate_payload,
@@ -1590,9 +1636,29 @@ def _send_remote_comment(user, post, text):
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
+                            logger.info(
+                                "FED_COMMENT_NODE_INBOX_OK status=%s mode=%s url=%s object=%s",
+                                resp.status_code,
+                                auth_mode,
+                                node_inbox,
+                                payload_object,
+                            )
                             return True, ""
+                        logger.warning(
+                            "FED_COMMENT_NODE_INBOX_FAIL status=%s mode=%s url=%s object=%s",
+                            resp.status_code,
+                            auth_mode,
+                            node_inbox,
+                            payload_object,
+                        )
                         last_error = f"{resp.status_code} {auth_mode} {node_inbox}".strip()
                 except Exception as ex:
+                    logger.warning(
+                        "FED_COMMENT_NODE_INBOX_EXC mode=%s url=%s err=%s",
+                        auth_mode,
+                        node_inbox,
+                        str(ex)[:180],
+                    )
                     last_error = f"EXC {auth_mode} {node_inbox} {str(ex)}"[:220]
                     continue
 
@@ -1750,6 +1816,8 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                     break
                 attempts += 1
                 try:
+                    auth_mode = "auth" if auth else "noauth"
+                    like_object = str(candidate_payload.get("object", ""))[:120]
                     with requests.post(
                         candidate_url,
                         json=candidate_payload,
@@ -1764,8 +1832,27 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
+                            logger.info(
+                                "FED_COMMENT_LIKE_OK status=%s mode=%s url=%s object=%s",
+                                resp.status_code,
+                                auth_mode,
+                                candidate_url,
+                                like_object,
+                            )
                             return True
+                        logger.warning(
+                            "FED_COMMENT_LIKE_FAIL status=%s mode=%s url=%s object=%s",
+                            resp.status_code,
+                            auth_mode,
+                            candidate_url,
+                            like_object,
+                        )
                 except Exception:
+                    logger.warning(
+                        "FED_COMMENT_LIKE_EXC mode=%s url=%s",
+                        "auth" if auth else "noauth",
+                        candidate_url,
+                    )
                     continue
 
     # Fallback for nodes that accept Like objects only via author inbox.
@@ -1777,6 +1864,8 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                     break
                 attempts += 1
                 try:
+                    auth_mode = "auth" if auth else "noauth"
+                    like_object = str(candidate_payload.get("object", ""))[:120]
                     with requests.post(
                         inbox_url,
                         json=candidate_payload,
@@ -1791,8 +1880,27 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                         },
                     ) as resp:
                         if resp.status_code in [200, 201, 202, 204, 409]:
+                            logger.info(
+                                "FED_COMMENT_LIKE_INBOX_OK status=%s mode=%s url=%s object=%s",
+                                resp.status_code,
+                                auth_mode,
+                                inbox_url,
+                                like_object,
+                            )
                             return True
+                        logger.warning(
+                            "FED_COMMENT_LIKE_INBOX_FAIL status=%s mode=%s url=%s object=%s",
+                            resp.status_code,
+                            auth_mode,
+                            inbox_url,
+                            like_object,
+                        )
                 except Exception:
+                    logger.warning(
+                        "FED_COMMENT_LIKE_INBOX_EXC mode=%s url=%s",
+                        "auth" if auth else "noauth",
+                        inbox_url,
+                    )
                     continue
 
     return False
