@@ -683,6 +683,7 @@ def _candidate_remote_comments_urls(post):
     if remote_id:
         # 1. Direct: remote_id + /comments
         urls.extend(_post_url_variants(remote_id + "/comments"))
+        urls.extend(_post_url_variants(remote_id + "/comment"))
 
         # 2. /api/entries/{uuid}/comments/ (no author prefix)
         if node_base:
@@ -692,23 +693,29 @@ def _candidate_remote_comments_urls(post):
                     if entry_id:
                         urls.extend(_post_url_variants(f"{node_base}/api/entries/{entry_id}/comments"))
                         urls.extend(_post_url_variants(f"{node_base}/api/posts/{entry_id}/comments"))
+                        urls.extend(_post_url_variants(f"{node_base}/api/entries/{entry_id}/comment"))
+                        urls.extend(_post_url_variants(f"{node_base}/api/posts/{entry_id}/comment"))
                     break
 
         # 3. /api/public/ variant
         if "/api/authors/" in remote_id:
             public_path = remote_id.replace("/api/authors/", "/api/public/authors/") + "/comments"
             urls.extend(_post_url_variants(public_path))
+            urls.extend(_post_url_variants(public_path.replace("/comments", "/comment")))
 
         if "/authors/" in remote_id and "/api/authors/" not in remote_id:
             api_path = remote_id.replace("/authors/", "/api/authors/") + "/comments"
             public_path = remote_id.replace("/authors/", "/api/public/authors/") + "/comments"
             urls.extend(_post_url_variants(api_path))
             urls.extend(_post_url_variants(public_path))
+            urls.extend(_post_url_variants(api_path.replace("/comments", "/comment")))
+            urls.extend(_post_url_variants(public_path.replace("/comments", "/comment")))
 
         # 4. /entries/ ↔ /posts/ cross-variants
         if "/entries/" in remote_id:
             posts_variant = remote_id.replace("/entries/", "/posts/")
             urls.extend(_post_url_variants(posts_variant + "/comments"))
+            urls.extend(_post_url_variants(posts_variant + "/comment"))
             if "/api/authors/" in posts_variant:
                 urls.extend(_post_url_variants(
                     posts_variant.replace("/api/authors/", "/api/public/authors/") + "/comments"
@@ -716,6 +723,7 @@ def _candidate_remote_comments_urls(post):
         elif "/posts/" in remote_id:
             entries_variant = remote_id.replace("/posts/", "/entries/")
             urls.extend(_post_url_variants(entries_variant + "/comments"))
+            urls.extend(_post_url_variants(entries_variant + "/comment"))
             if "/api/authors/" in entries_variant:
                 urls.extend(_post_url_variants(
                     entries_variant.replace("/api/authors/", "/api/public/authors/") + "/comments"
@@ -1368,6 +1376,7 @@ def _send_remote_comment(user, post, text):
     base_url = _site_url()
 
     auth_candidates = _auth_candidates_for_post(post)
+    last_error = ""
     payload_variants = []
     for object_id in _candidate_remote_object_ids(post)[:8]:
         base_payload = {
@@ -1379,12 +1388,14 @@ def _send_remote_comment(user, post, text):
             "contentType": "text/plain",
             "object": object_id,
             "entry": object_id,
+            "post": object_id,
             "published": timezone.now().isoformat(),
         }
         payload_variants.append(base_payload)
         payload_variants.append({**base_payload, "type": "Comment"})
         payload_variants.append({**base_payload, "type": "comments"})
         payload_variants.append({**base_payload, "type": "Comments"})
+        payload_variants.append({**base_payload, "author": _local_author_payload(user).get("id")})
     max_attempts = 40
     attempts = 0
 
@@ -1407,15 +1418,22 @@ def _send_remote_comment(user, post, text):
                         },
                     )
                     if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True
-                except Exception:
+                        return True, ""
+                    body = ""
+                    try:
+                        body = (resp.text or "").strip().replace("\n", " ")[:180]
+                    except Exception:
+                        body = ""
+                    last_error = f"{resp.status_code} {comments_url} {body}".strip()
+                except Exception as ex:
+                    last_error = f"EXC {comments_url} {str(ex)}"[:220]
                     continue
 
     for inbox_url in _candidate_remote_inbox_urls(post)[:4]:
         for candidate_payload in payload_variants:
             for auth in auth_candidates:
                 if attempts >= max_attempts:
-                    return False
+                    return False, last_error
                 attempts += 1
                 try:
                     resp = requests.post(
@@ -1430,15 +1448,22 @@ def _send_remote_comment(user, post, text):
                         },
                     )
                     if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True
-                except Exception:
+                        return True, ""
+                    body = ""
+                    try:
+                        body = (resp.text or "").strip().replace("\n", " ")[:180]
+                    except Exception:
+                        body = ""
+                    last_error = f"{resp.status_code} {inbox_url} {body}".strip()
+                except Exception as ex:
+                    last_error = f"EXC {inbox_url} {str(ex)}"[:220]
                     continue
 
     for node_inbox in _candidate_node_inbox_urls(post.node_url)[:2]:
         for candidate_payload in payload_variants:
             for auth in auth_candidates:
                 if attempts >= max_attempts:
-                    return False
+                    return False, last_error
                 attempts += 1
                 try:
                     resp = requests.post(
@@ -1453,11 +1478,18 @@ def _send_remote_comment(user, post, text):
                         },
                     )
                     if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True
-                except Exception:
+                        return True, ""
+                    body = ""
+                    try:
+                        body = (resp.text or "").strip().replace("\n", " ")[:180]
+                    except Exception:
+                        body = ""
+                    last_error = f"{resp.status_code} {node_inbox} {body}".strip()
+                except Exception as ex:
+                    last_error = f"EXC {node_inbox} {str(ex)}"[:220]
                     continue
 
-    return False
+    return False, last_error
 
 
 def _send_remote_like(user, post):
@@ -1959,9 +1991,10 @@ def add_comment(request, post_id):
         if not _is_post_from_active_remote_node(post):
             return HttpResponseForbidden("Remote node is not connected.")
 
-        ok = _send_remote_comment(request.user, post, text)
+        ok, error_detail = _send_remote_comment(request.user, post, text)
         if not ok:
-            return HttpResponseForbidden("Could not send remote comment.")
+            detail = (error_detail or "unknown federation failure")[:220]
+            return HttpResponseForbidden(f"Could not send remote comment. {detail}")
 
         pending_remote_comments = request.session.get("pending_remote_comments", {})
         post_key = str(post.remote_id)
