@@ -578,6 +578,7 @@ def _check_remote_post_visibility(post):
                         # Also update the full cache while we're at it
                         normalized = _normalize_remote_post(data, post.node_url)
                         _upsert_remote_post_cache(normalized)
+                        print(f"Correct Visibilyt: {vis}")
                         return vis
                 except Exception:
                     pass
@@ -585,6 +586,7 @@ def _check_remote_post_visibility(post):
                 return post.visibility
 
             if resp.status_code in [403, 401]:
+                print(f"Post failed to verify visibility: {resp.status_code}")
                 # Access denied — post was restricted
                 Post.objects.filter(id=post.id).update(
                     visibility=Post.Visibility.FRIENDS
@@ -599,7 +601,7 @@ def _check_remote_post_visibility(post):
             # Other status (500, etc) — try next endpoint
         except Exception:
             continue
-
+    
     # All endpoints failed
     return None
 
@@ -2157,6 +2159,7 @@ def stream(request):
 
                 if current_visibility is False:
                     # Remote denied access (403/401) or post deleted (404)
+                    print("Access getting denied: check check_remote_post_visibility function")
                     p._hide_from_stream = True
                     refreshed_remote += 1
                     continue
@@ -2164,10 +2167,14 @@ def stream(request):
                 # If post is FRIENDS in our cache, also hide
                 if p.visibility == Post.Visibility.FRIENDS:
                     if current_visibility is None:
+                        print("Failed to reach other node")
+                        pass
+                        '''
                         # Couldn't reach the remote — hide to be safe
                         p._hide_from_stream = True
                         refreshed_remote += 1
                         continue
+                        '''
 
                 remote_comments = _fetch_remote_comments(p, viewer=user, include_like_state=False)
                 remote_likes = _fetch_remote_likes(p)
