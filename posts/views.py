@@ -984,37 +984,38 @@ def _candidate_remote_object_ids(post):
     if not remote_id:
         return []
 
-    candidates = {
+    # Preserve deterministic order: canonical FQID first, then close variants.
+    ordered = [
         remote_id,
         remote_id + "/",
-    }
+    ]
 
     if "/authors/api/authors/" in remote_id:
-        candidates.add(remote_id.replace("/authors/api/authors/", "/authors/"))
-        candidates.add(remote_id.replace("/authors/api/authors/", "/api/authors/"))
+        ordered.append(remote_id.replace("/authors/api/authors/", "/api/authors/"))
+        ordered.append(remote_id.replace("/authors/api/authors/", "/authors/"))
     elif "/api/authors/" in remote_id:
-        candidates.add(remote_id.replace("/api/authors/", "/authors/"))
-        candidates.add(remote_id.replace("/api/authors/", "/authors/api/authors/"))
-        candidates.add(remote_id.replace("/api/authors/", "/api/public/authors/"))
+        ordered.append(remote_id.replace("/api/authors/", "/authors/api/authors/"))
+        ordered.append(remote_id.replace("/api/authors/", "/authors/"))
+        ordered.append(remote_id.replace("/api/authors/", "/api/public/authors/"))
     elif "/authors/" in remote_id:
-        candidates.add(remote_id.replace("/authors/", "/api/authors/"))
-        candidates.add(remote_id.replace("/authors/", "/authors/api/authors/"))
-        candidates.add(remote_id.replace("/authors/", "/api/public/authors/"))
+        ordered.append(remote_id.replace("/authors/", "/api/authors/"))
+        ordered.append(remote_id.replace("/authors/", "/authors/api/authors/"))
+        ordered.append(remote_id.replace("/authors/", "/api/public/authors/"))
 
     if "/entries/" in remote_id:
-        candidates.add(remote_id.replace("/entries/", "/posts/"))
+        ordered.append(remote_id.replace("/entries/", "/posts/"))
     if "/posts/" in remote_id:
-        candidates.add(remote_id.replace("/posts/", "/entries/"))
+        ordered.append(remote_id.replace("/posts/", "/entries/"))
 
     for marker in ["/entries/", "/posts/"]:
         if marker in remote_id:
             post_tail = remote_id.split(marker)[-1].strip("/")
             if post_tail:
-                candidates.add(post_tail)
+                ordered.append(post_tail)
 
     deduped = []
     seen = set()
-    for value in candidates:
+    for value in ordered:
         v = (value or "").strip()
         if v and v not in seen:
             deduped.append(v)
@@ -1461,7 +1462,7 @@ def _send_remote_comment(user, post, text):
         auth_candidates = [None]
     last_error = ""
     payload_variants = []
-    for object_id in _candidate_remote_object_ids(post)[:2]:
+    for object_id in _candidate_remote_object_ids(post)[:4]:
         base_payload = {
             "type": "comment",
             "id": default_comment_url,
