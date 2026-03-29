@@ -1693,7 +1693,55 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
     return False
 
 # ---------- Stream ----------
+@login_required
+def sync_pending_follows(user):
+    """
+    Check all pending follow requests sent by `user` to remote authors.
+    If accepted on remote node, update status to 'accepted'.
+    """
 
+    # Get all pending follows where YOU are following others
+    pending_follows = Follower.objects.filter(
+        follower=user,
+        status="pending"
+    ).select_related("following")
+
+    # Build your FQID once
+    user_fqid = f"{settings.SITE_URL.rstrip('/')}/api/authors/{user.id}"
+    encoded_user = quote(user_fqid, safe="")
+    print(f"Here is user_fqid: {user_fqid}")
+    for follow in pending_follows:
+        target = follow.following  # the person you requested to follow
+
+        # Only check remote authors
+        if not target.is_remote or not target.host:
+            continue
+
+        try:
+            # IMPORTANT: use remote_id if available
+            target_id = target.remote_id or f"{target.host.rstrip('/')}/api/authors/{target.id}"
+
+            # Extract UUID part if needed
+            # (some teams store full FQID, some store UUID)
+            target_uuid = target_id.rstrip("/").split("/")[-1]
+
+            url = f"{target.host.rstrip('/')}/api/authors/{target_uuid}/followers/{encoded_user}/"
+            print(f"Printing get url = {url}")
+
+            response = requests.get(
+                url,
+                auth=(settings.NODE_USERNAME, settings.NODE_PASSWORD),  # put your creds in settings
+                timeout=5
+            )
+
+            if response.status_code == 200:
+                follow.status = "accepted"
+                print(f"follow request being saved")
+                follow.save()
+
+        except Exception:
+            # silently ignore failures (important for stability)
+            continue
 @login_required
 def stream(request):
     pending_remote_comments = request.session.get("pending_remote_comments", {})
