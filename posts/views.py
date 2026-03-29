@@ -2024,6 +2024,23 @@ def stream(request):
     ):
         remote_friend_author_urls.update(_author_url_variants(remote_id))
 
+    print("\n========== DEBUG STREAM ==========")
+
+    print("ALLOWED REMOTE NODES:")
+    for n in allowed_remote_nodes:
+        print("  ", repr(n))
+
+    print("\nREMOTE FRIEND AUTHOR URLS:")
+    for u in remote_friend_author_urls:
+        print("  ", repr(u))
+
+    print("\nREMOTE POSTS (node_url + author):")
+    for p in Post.objects.filter(is_remote=True):
+        print("  POST NODE:", repr(p.node_url))
+        print("  AUTHOR:", repr(p.remote_author_url))
+        print("  VIS:", p.visibility)
+
+    print("=================================\n")
     all_posts = list(
         Post.objects.filter(deleted=False)
         .exclude(title__startswith="GitHub Activity:")
@@ -2045,13 +2062,13 @@ def stream(request):
                 is_remote=True,
                 remote_author_url__in=remote_following_author_urls,
                 visibility=Post.Visibility.UNLISTED,
-                node_url__in=allowed_remote_nodes,
+                #node_url__in=allowed_remote_nodes,
             )
             | Q(
                 is_remote=True,
                 remote_author_url__in=remote_friend_author_urls,
                 visibility=Post.Visibility.FRIENDS,
-                node_url__in=allowed_remote_nodes,
+                #node_url__in=allowed_remote_nodes,
             )
         )
         .prefetch_related("comments__author", "comments__likes", "likes")
