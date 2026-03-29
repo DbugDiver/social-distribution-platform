@@ -1757,7 +1757,7 @@ def sync_pending_follows(user):
             continue
 @login_required
 def stream(request):
-    #sync_pending_follows(request.user) 
+    sync_pending_follows(request.user) 
     pending_remote_comments = request.session.get("pending_remote_comments", {})
     user = request.user
     allowed_remote_nodes = _active_remote_nodes()
