@@ -162,13 +162,30 @@ def _try_post_json(url, payload, auth=None, timeout=5):
     except Exception:
         return False
 
-
+'''
 def _normalize_author_id(value):
     raw = (value or "").strip().rstrip("/")
     if not raw:
         return ""
     # Treat /authors/<id> and /authors/api/authors/<id> as the same identity.
     return raw.replace("/authors/api/authors/", "/authors/")
+'''
+def _normalize_author_id(value):
+    raw = (value or "").strip().rstrip("/")
+    if not raw:
+        return ""
+
+    # If it's already correct → keep it
+    if "/api/authors/" in raw:
+        return raw
+
+    # If it's HTML format → convert
+    if "/authors/" in raw:
+        return raw.replace("/authors/", "/api/authors/")
+
+    # Otherwise → reject (important)
+    print(f"Rejecting url inside _normalize_author_id")
+    return ""
 
 
 def _remote_like_matches_user(raw_like, user):
@@ -2014,7 +2031,10 @@ def stream(request):
         .exclude(remote_id="")
         .values_list("remote_id", flat=True)
     ):
-        remote_following_author_urls.update(_author_url_variants(remote_id))
+        normalized = _normalize_author_id(remote_id)
+        if normalized:
+            remote_following_author_urls.add(normalized)
+        #remote_following_author_urls.update(_author_url_variants(remote_id))
 
     for remote_id in (
         Author.objects.filter(id__in=friend_ids, is_remote=True)
@@ -2022,7 +2042,10 @@ def stream(request):
         .exclude(remote_id="")
         .values_list("remote_id", flat=True)
     ):
-        remote_friend_author_urls.update(_author_url_variants(remote_id))
+        normalized = _normalize_author_id(remote_id)
+        if normalized:
+            remote_friend_author_urls.add(normalized)
+        #remote_friend_author_urls.update(_author_url_variants(remote_id))
 
     print("\n========== DEBUG STREAM ==========")
 
@@ -2032,6 +2055,10 @@ def stream(request):
 
     print("\nREMOTE FRIEND AUTHOR URLS:")
     for u in remote_friend_author_urls:
+        print("  ", repr(u))
+    
+    print("\nREMOTE Following AUTHOR URLS:")
+    for u in remote_following_author_urls:
         print("  ", repr(u))
 
     print("\nREMOTE POSTS (node_url + author):")
@@ -2062,13 +2089,13 @@ def stream(request):
                 is_remote=True,
                 remote_author_url__in=remote_following_author_urls,
                 visibility=Post.Visibility.UNLISTED,
-                #node_url__in=allowed_remote_nodes,
+                node_url__in=allowed_remote_nodes,
             )
             | Q(
                 is_remote=True,
                 remote_author_url__in=remote_friend_author_urls,
                 visibility=Post.Visibility.FRIENDS,
-                #node_url__in=allowed_remote_nodes,
+                node_url__in=allowed_remote_nodes,
             )
         )
         .prefetch_related("comments__author", "comments__likes", "likes")
