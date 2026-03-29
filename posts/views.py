@@ -695,6 +695,7 @@ def _candidate_remote_comments_urls(post):
 
     remote_id = str(post.remote_id or "").rstrip("/")
     node_base = str(post.node_url or "").rstrip("/")
+    remote_author = str(getattr(post, "remote_author_url", "") or "").rstrip("/")
 
     if remote_id:
         # 1. Prefer /posts/ comment endpoints before /entries/ for remote writes.
@@ -775,6 +776,36 @@ def _candidate_remote_comments_urls(post):
                     ))
                 except Exception:
                     pass
+
+        # 7. Author-scoped fallback from remote_author_url + post UUID.
+        if node_base and remote_author:
+            try:
+                author_parts = [part for part in remote_author.split("/") if part]
+                if "authors" in author_parts:
+                    author_idx = author_parts.index("authors")
+                    author_part = author_parts[author_idx + 1]
+
+                    entry_id = ""
+                    for marker in ["/entries/", "/posts/"]:
+                        if marker in remote_id:
+                            entry_id = remote_id.split(marker)[-1].strip("/")
+                            break
+
+                    if entry_id:
+                        urls.extend(_post_url_variants(
+                            f"{node_base}/api/authors/{author_part}/entries/{entry_id}/comments"
+                        ))
+                        urls.extend(_post_url_variants(
+                            f"{node_base}/api/authors/{author_part}/posts/{entry_id}/comments"
+                        ))
+                        urls.extend(_post_url_variants(
+                            f"{node_base}/api/authors/{author_part}/entries/{entry_id}/comment"
+                        ))
+                        urls.extend(_post_url_variants(
+                            f"{node_base}/api/authors/{author_part}/posts/{entry_id}/comment"
+                        ))
+            except Exception:
+                pass
     deduped = []
     seen = set()
     for value in urls:
@@ -1490,11 +1521,6 @@ def _send_remote_comment(user, post, text):
                         last_error = f"{resp.status_code} {auth_mode} {comments_url}".strip()
                 except Exception as ex:
                     transient_error = str(ex)
-                    if "IncompleteRead" in transient_error or "Connection broken" in transient_error:
-                        # Do not treat transport truncation as success.
-                        # Keep trying other endpoints (especially inbox routes).
-                        last_error = f"EXC {auth_mode} {comments_url} {transient_error}"[:220]
-                        continue
                     last_error = f"EXC {auth_mode} {comments_url} {str(ex)}"[:220]
                     continue
 
@@ -1732,6 +1758,7 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                 except Exception:
                     continue
 
+    # Fallback for nodes that accept Like objects only via author inbox.
     attempts = 0
     for inbox_url in _candidate_remote_inbox_urls(post)[:4]:
         for candidate_payload in payload_variants:
@@ -1742,32 +1769,6 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                 try:
                     with requests.post(
                         inbox_url,
-                        json=candidate_payload,
-                        auth=auth,
-                        timeout=2.2,
-                        allow_redirects=False,
-                        stream=True,
-                        headers={
-                            "Accept": "application/json",
-                            "Content-Type": "application/json",
-                            "Connection": "close",
-                        },
-                    ) as resp:
-                        if resp.status_code in [200, 201, 202, 204, 409]:
-                            return True
-                except Exception:
-                    continue
-
-    attempts = 0
-    for node_inbox in _candidate_node_inbox_urls(post.node_url)[:2]:
-        for candidate_payload in payload_variants:
-            for auth in auth_candidates:
-                if attempts >= max_attempts:
-                    break
-                attempts += 1
-                try:
-                    with requests.post(
-                        node_inbox,
                         json=candidate_payload,
                         auth=auth,
                         timeout=2.2,
