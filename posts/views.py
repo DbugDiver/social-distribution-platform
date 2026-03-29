@@ -590,13 +590,28 @@ def _author_inbox_url(author_url):
 
 def _local_author_payload(user):
     base = _site_url()
+    profile_image_value = getattr(user, "profileImage", "")
+
+    # Django ImageField/FileField values are file objects, not JSON-serializable.
+    if hasattr(profile_image_value, "url"):
+        try:
+            profile_image_value = profile_image_value.url
+        except Exception:
+            profile_image_value = ""
+
+    profile_image = str(profile_image_value or "").strip()
+    if profile_image.startswith("<") and "ImageFieldFile" in profile_image:
+        profile_image = ""
+    elif profile_image.startswith("/"):
+        profile_image = urljoin(f"{base}/", profile_image)
+
     return {
         "type": "author",
         "id": f"{base}/api/authors/{user.id}",
         "host": f"{base}/api/",
         "displayName": getattr(user, "displayName", "") or getattr(user, "username", "Local User"),
         "github": getattr(user, "github", "") or "",
-        "profileImage": getattr(user, "profileImage", "") or "",
+        "profileImage": profile_image,
         "web": f"{base}/authors/{user.id}",
     }
 
