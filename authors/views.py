@@ -1717,7 +1717,8 @@ def author_search(request):
             for author in items:
                 normalized = _normalize_remote_author_card(author, node)
                 author_id = normalized["id"]
-                canonical_author_id = _canonical_remote_author_id(author_id)
+                print(f"This is author id: {author_id}")
+                canonical_author_id = author_id  #_canonical_remote_author_id(author_id)
 
                 if not canonical_author_id or canonical_author_id in seen_ids:
                     continue
