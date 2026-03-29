@@ -390,9 +390,11 @@ def api_accept_reject_followers(request, pk, foreign_id):
             is_remote=True,
         )
     '''
+    '''
     if not remote_follower:
         uuid = decoded_id.split("/")[-1]
         remote_follower = Author.objects.filter(id=uuid).first()
+    '''
 
     if not remote_follower:
         return Response({"detail": "Remote author not found"}, status=404)
