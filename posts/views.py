@@ -596,11 +596,12 @@ def _local_author_payload(user):
     profile_image_value = getattr(user, "profileImage", "")
 
     # Django ImageField/FileField values are file objects, not JSON-serializable.
-    if hasattr(profile_image_value, "url"):
+    # Avoid hasattr(..., "url") because it can trigger ValueError when no file exists.
+    if profile_image_value:
         try:
             profile_image_value = profile_image_value.url
         except Exception:
-            profile_image_value = ""
+            profile_image_value = str(profile_image_value)
 
     profile_image = str(profile_image_value or "").strip()
     if profile_image.startswith("<") and "ImageFieldFile" in profile_image:
