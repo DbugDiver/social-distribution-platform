@@ -14,7 +14,6 @@ urlpatterns = [
     path("<uuid:pk>/inbox", views.api_author_inbox),
     #path("<uuid:pk>/accept/", api_views.api_accept_follow),
     #path("<uuid:pk>/reject/", api_views.api_reject_follow),
-
     path("<uuid:pk>/followers/", api_views.api_get_followers),
     path("<uuid:pk>/followers/<path:foreign_id>/", api_views.api_accept_reject_followers),
     path("<uuid:pk>/followers/<path:foreign_id>", api_views.api_accept_reject_followers),

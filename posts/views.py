@@ -1940,7 +1940,6 @@ def sync_pending_follows(user):
     print(f"Here is user_fqid: {user_fqid}")
     for follow in pending_follows:
         target = follow.following  # the person you requested to follow
-
         # Only check remote authors
         if not target.is_remote or not target.host:
             continue

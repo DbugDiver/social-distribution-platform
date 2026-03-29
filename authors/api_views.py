@@ -350,9 +350,11 @@ def api_get_follow_requests(request, pk):
     })
 
 
+#APi for /followers
 @api_view(["GET", "PUT", "DELETE"])
 @permission_classes([IsAuthenticated])
 def api_accept_reject_followers(request, pk, foreign_id):
+    
     print("---- REQUEST DEBUG ----")
     print("Method:", request.method)
     print("Path:", request.path)
@@ -360,41 +362,25 @@ def api_accept_reject_followers(request, pk, foreign_id):
     print("Body (raw):", request.body)
     print("Headers:", dict(request.headers))
     print("-----------------------")
-    # decode foreign author
-    #decoded_id = unquote(foreign_id)
+    
+  
     decoded_id = foreign_id
     print(f"decoding beofre = foreign_id: {decoded_id}")
     # Decode ONLY if encoded
     if "%" in decoded_id:
         decoded_id = unquote(decoded_id)
-        print(f"After decodeing using unquote: {decoded_id}")
+        #print(f"After decodeing using unquote: {decoded_id}")
 
     decoded_id = decoded_id.rstrip("/")
     print(f"After decodeing using rstrip: {decoded_id}")
 
-    '''
-    if not decoded_id.startswith("http"):
-        print("Invalid FQID format")
-        return Response({"detail": "Invalid FQID"}, status=400)
-    '''
+    
     
     target = get_object_or_404(Author, pk=pk)
     # find or create remote follower
     remote_follower = Author.objects.filter(remote_id=decoded_id).first()
     print(f"Remote follower found : {remote_follower} decoded id = {decoded_id}")
-    '''
-    if not remote_follower:
-        remote_follower = Author.objects.create(
-            remote_id=decoded_id,
-            displayName="Remote User",
-            is_remote=True,
-        )
-    '''
-    '''
-    if not remote_follower:
-        uuid = decoded_id.split("/")[-1]
-        remote_follower = Author.objects.filter(id=uuid).first()
-    '''
+    
 
     if not remote_follower:
         return Response({"detail": "Remote author not found"}, status=404)

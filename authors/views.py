@@ -1447,9 +1447,7 @@ def _store_remote_like(like_payload):
 def api_author_inbox(request, pk):
     if request.method != "POST":
         return JsonResponse({"detail": "Method not allowed."}, status=405)
-
     target = get_object_or_404(Author, pk=pk)
-
     try:
         payload = json.loads(request.body.decode("utf-8"))
         print("🔥 FULL PAYLOAD RECEIVED:", payload)
