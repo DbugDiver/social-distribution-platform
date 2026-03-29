@@ -1462,23 +1462,32 @@ def _send_remote_comment(user, post, text):
         auth_candidates = [None]
     last_error = ""
     payload_variants = []
+    author_payload = _local_author_payload(user)
     for object_id in _candidate_remote_object_ids(post)[:4]:
-        base_payload = {
+        # Strict payload first for nodes with explicit serializers.
+        strict_payload = {
             "type": "comment",
             "id": default_comment_url,
-            "author": _local_author_payload(user),
+            "author": author_payload,
             "comment": text,
-            "content": text,
             "contentType": "text/plain",
             "object": object_id,
+        }
+        payload_variants.append(strict_payload)
+        payload_variants.append({**strict_payload, "type": "Comment"})
+        payload_variants.append({**strict_payload, "id": service_comment_url})
+        payload_variants.append({**strict_payload, "author": author_payload.get("id")})
+
+        # Compatibility payload for teams expecting additional fields.
+        compat_payload = {
+            **strict_payload,
+            "content": text,
             "entry": object_id,
             "post": object_id,
             "published": timezone.now().isoformat(),
         }
-        payload_variants.append(base_payload)
-        payload_variants.append({**base_payload, "type": "Comment"})
-        payload_variants.append({**base_payload, "author": _local_author_payload(user).get("id")})
-        payload_variants.append({**base_payload, "id": service_comment_url})
+        payload_variants.append(compat_payload)
+        payload_variants.append({**compat_payload, "type": "Comment"})
 
     # Keep payload count bounded so retries can cover multiple endpoint candidates.
     dedup_payloads = []
