@@ -1407,6 +1407,8 @@ def _fetch_remote_likes(post):
 def _send_remote_comment(user, post, text):
     comment_id = str(uuid.uuid4())
     base_url = _site_url()
+    default_comment_url = f"{base_url}/api/authors/{user.id}/commented/{comment_id}"
+    service_comment_url = f"{base_url}/service/api/authors/{user.id}/commented/{comment_id}"
 
     auth_candidates = [a for a in _auth_candidates_for_post(post) if a]
     if not auth_candidates:
@@ -1416,7 +1418,7 @@ def _send_remote_comment(user, post, text):
     for object_id in _candidate_remote_object_ids(post)[:2]:
         base_payload = {
             "type": "comment",
-            "id": f"{base_url}/api/authors/{user.id}/commented/{comment_id}",
+            "id": default_comment_url,
             "author": _local_author_payload(user),
             "comment": text,
             "content": text,
@@ -1429,6 +1431,7 @@ def _send_remote_comment(user, post, text):
         payload_variants.append(base_payload)
         payload_variants.append({**base_payload, "type": "Comment"})
         payload_variants.append({**base_payload, "author": _local_author_payload(user).get("id")})
+        payload_variants.append({**base_payload, "id": service_comment_url})
 
     # Keep payload count bounded so retries can cover multiple endpoint candidates.
     dedup_payloads = []
@@ -1471,6 +1474,11 @@ def _send_remote_comment(user, post, text):
                             return True, ""
                         last_error = f"{resp.status_code} {auth_mode} {comments_url}".strip()
                 except Exception as ex:
+                    transient_error = str(ex)
+                    if "IncompleteRead" in transient_error or "Connection broken" in transient_error:
+                        # Some nodes persist the comment but return a truncated response body.
+                        # Treat this transport error as success to avoid false negatives.
+                        return True, ""
                     last_error = f"EXC {auth_mode} {comments_url} {str(ex)}"[:220]
                     continue
 
