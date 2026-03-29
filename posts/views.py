@@ -1729,28 +1729,39 @@ def sync_pending_follows(user):
         # Only check remote authors
         if not target.is_remote or not target.host:
             continue
-
         try:
-            # IMPORTANT: use remote_id if available
-            target_id = target.remote_id or f"{target.host.rstrip('/')}/api/authors/{target.id}"
+            remote_id = (target.remote_id or "").strip()
 
-            # Extract UUID part if needed
-            # (some teams store full FQID, some store UUID)
-            target_uuid = target_id.rstrip("/").split("/")[-1]
+            # Extract node base (same as your friend)
+            node_base = ""
+            if remote_id.startswith("http://") or remote_id.startswith("https://"):
+                parts = remote_id.split("/")
+                if len(parts) >= 3:
+                    node_base = f"{parts[0]}//{parts[2]}"
 
-            url = f"{target.host.rstrip('/')}/api/authors/{target_uuid}/followers/{encoded_user}/"
-            print(f"Printing get url = {url}")
+            # Get auth dynamically
+            auth = _auth_for_node(node_base.rstrip("/")) if node_base else None
 
-            response = requests.get(
+            # Extract UUID
+            target_uuid = remote_id.rstrip("/").split("/")[-1]
+
+            url = f"{node_base}/api/authors/{target_uuid}/followers/{encoded_user}/"
+
+            print(f"GET URL: {url}")
+
+            resp = requests.get(
                 url,
-                auth=(settings.NODE_USERNAME, settings.NODE_PASSWORD),  # put your creds in settings
-                timeout=5
+                auth=auth,
+                timeout=5,
+                headers={"Accept": "application/json"},
             )
 
-            if response.status_code == 200:
+            print(f"Status: {resp.status_code}")
+
+            if resp.status_code == 200:
                 follow.status = "accepted"
-                print(f"follow request being saved")
                 follow.save()
+                print("Updated to accepted")
 
         except Exception as e:
             print(f"ERROR in sync_pending_follows: {e}")
