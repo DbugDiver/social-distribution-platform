@@ -1454,25 +1454,22 @@ def _send_remote_comment(user, post, text):
                 attempts += 1
                 try:
                     auth_mode = "auth" if auth else "noauth"
-                    resp = requests.post(
+                    with requests.post(
                         comments_url,
                         json=candidate_payload,
                         auth=auth,
                         timeout=2.2,
                         allow_redirects=False,
+                        stream=True,
                         headers={
                             "Accept": "application/json",
                             "Content-Type": "application/json",
+                            "Connection": "close",
                         },
-                    )
-                    if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True, ""
-                    body = ""
-                    try:
-                        body = (resp.text or "").strip().replace("\n", " ")[:180]
-                    except Exception:
-                        body = ""
-                    last_error = f"{resp.status_code} {auth_mode} {comments_url} {body}".strip()
+                    ) as resp:
+                        if resp.status_code in [200, 201, 202, 204, 409]:
+                            return True, ""
+                        last_error = f"{resp.status_code} {auth_mode} {comments_url}".strip()
                 except Exception as ex:
                     last_error = f"EXC {auth_mode} {comments_url} {str(ex)}"[:220]
                     continue
@@ -1485,25 +1482,22 @@ def _send_remote_comment(user, post, text):
                 attempts += 1
                 try:
                     auth_mode = "auth" if auth else "noauth"
-                    resp = requests.post(
+                    with requests.post(
                         inbox_url,
                         json=candidate_payload,
                         auth=auth,
                         timeout=2.2,
                         allow_redirects=False,
+                        stream=True,
                         headers={
                             "Accept": "application/json",
                             "Content-Type": "application/json",
+                            "Connection": "close",
                         },
-                    )
-                    if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True, ""
-                    body = ""
-                    try:
-                        body = (resp.text or "").strip().replace("\n", " ")[:180]
-                    except Exception:
-                        body = ""
-                    last_error = f"{resp.status_code} {auth_mode} {inbox_url} {body}".strip()
+                    ) as resp:
+                        if resp.status_code in [200, 201, 202, 204, 409]:
+                            return True, ""
+                        last_error = f"{resp.status_code} {auth_mode} {inbox_url}".strip()
                 except Exception as ex:
                     last_error = f"EXC {auth_mode} {inbox_url} {str(ex)}"[:220]
                     continue
@@ -1516,25 +1510,22 @@ def _send_remote_comment(user, post, text):
                 attempts += 1
                 try:
                     auth_mode = "auth" if auth else "noauth"
-                    resp = requests.post(
+                    with requests.post(
                         node_inbox,
                         json=candidate_payload,
                         auth=auth,
                         timeout=2.2,
                         allow_redirects=False,
+                        stream=True,
                         headers={
                             "Accept": "application/json",
                             "Content-Type": "application/json",
+                            "Connection": "close",
                         },
-                    )
-                    if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True, ""
-                    body = ""
-                    try:
-                        body = (resp.text or "").strip().replace("\n", " ")[:180]
-                    except Exception:
-                        body = ""
-                    last_error = f"{resp.status_code} {auth_mode} {node_inbox} {body}".strip()
+                    ) as resp:
+                        if resp.status_code in [200, 201, 202, 204, 409]:
+                            return True, ""
+                        last_error = f"{resp.status_code} {auth_mode} {node_inbox}".strip()
                 except Exception as ex:
                     last_error = f"EXC {auth_mode} {node_inbox} {str(ex)}"[:220]
                     continue
@@ -1693,19 +1684,21 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
                     return False
                 attempts += 1
                 try:
-                    resp = requests.post(
+                    with requests.post(
                         candidate_url,
                         json=candidate_payload,
                         auth=auth,
                         timeout=2.2,
                         allow_redirects=False,
+                        stream=True,
                         headers={
                             "Accept": "application/json",
                             "Content-Type": "application/json",
+                            "Connection": "close",
                         },
-                    )
-                    if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True
+                    ) as resp:
+                        if resp.status_code in [200, 201, 202, 204, 409]:
+                            return True
                 except Exception:
                     continue
 
