@@ -368,7 +368,10 @@ def api_accept_reject_followers(request, pk, foreign_id):
         )
     '''
     if not remote_follower:
-        return Response({"detail": "Remote author not found"}, status=404)
+        uuid = decoded_id.rstrip("/").split("/")[-1]
+        remote_follower = Author.objects.filter(id=uuid).first()
+        if not uuid:
+            return Response({"detail": "Remote author not found: "}, status=404)
 
     # =========================
     #  GET → check follower
@@ -388,10 +391,18 @@ def api_accept_reject_followers(request, pk, foreign_id):
             status="accepted"
         ).first()
         if not relation:
+            print("---- REQUEST DEBUG ----")
+            print("Method:", request.method)
+            print("Path:", request.path)
+            print("GET params:", request.GET)
+            print("Body (raw):", request.body)
+            print("Headers:", dict(request.headers))
+            print("-----------------------")
             return Response({"detail": "Not a follower"}, status=404)
 
         serializer = AuthorSerializer(remote_follower)
         #serializer = AuthorSerializer(relation.follower)
+        print("Relation found: sending 200")
         return Response(serializer.data, status=200)
 
     # =========================
