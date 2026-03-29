@@ -1468,7 +1468,7 @@ def _send_remote_comment(user, post, text):
         for comments_url in candidate_comments_urls[:10]:
             for auth in auth_candidates:
                 if attempts >= max_attempts:
-                    return False, last_error
+                    break
                 attempts += 1
                 try:
                     auth_mode = "auth" if auth else "noauth"
@@ -1497,11 +1497,14 @@ def _send_remote_comment(user, post, text):
                     last_error = f"EXC {auth_mode} {comments_url} {str(ex)}"[:220]
                     continue
 
+    # Try author inbox routes even if direct comment endpoints failed.
+    attempts = 0
+
     for inbox_url in _candidate_remote_inbox_urls(post)[:4]:
         for candidate_payload in payload_variants:
             for auth in auth_candidates:
                 if attempts >= max_attempts:
-                    return False, last_error
+                    break
                 attempts += 1
                 try:
                     auth_mode = "auth" if auth else "noauth"
@@ -1525,11 +1528,14 @@ def _send_remote_comment(user, post, text):
                     last_error = f"EXC {auth_mode} {inbox_url} {str(ex)}"[:220]
                     continue
 
+    # Last fallback: node-level inbox routes.
+    attempts = 0
+
     for node_inbox in _candidate_node_inbox_urls(post.node_url)[:2]:
         for candidate_payload in payload_variants:
             for auth in auth_candidates:
                 if attempts >= max_attempts:
-                    return False, last_error
+                    break
                 attempts += 1
                 try:
                     auth_mode = "auth" if auth else "noauth"
