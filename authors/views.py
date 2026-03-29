@@ -983,7 +983,7 @@ def _auth_for_node(node_url):
 def _remote_username_seed(remote_id):
     return f"remote_{str(abs(hash(remote_id)))[:20]}"
 
-
+'''
 def _canonical_remote_author_id(remote_id):
     raw = (remote_id or "").strip().rstrip("/")
     if not raw:
@@ -993,7 +993,12 @@ def _canonical_remote_author_id(remote_id):
         .replace("/authors/api/authors/", "/authors/")
         .replace("/api/authors/", "/authors/")
     )
-
+'''
+def _canonical_remote_author_id(remote_id):
+    raw = (remote_id or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    return raw.replace("/authors/", "/api/authors/")
 
 def _remote_author_id_variants(remote_id):
     canonical = _canonical_remote_author_id(remote_id)
