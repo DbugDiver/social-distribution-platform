@@ -569,6 +569,7 @@ def send_a_follow_request(request):
 
         # Keep a local pending edge so callbacks can transition it to accepted.
         remote_target = _upsert_remote_author({"id": author_url, "url": author_url})
+
         if remote_target:
             relation, _ = Follower.objects.get_or_create(follower=author, following=remote_target)
             if relation.status != "accepted":
@@ -610,10 +611,10 @@ def send_a_follow_request(request):
         inbox_url = author_url.rstrip("/") + "/inbox/"
         node_url = _host_from_author_url(author_url)
         auth = _auth_for_node(node_url) if node_url else None
-        #print("\n🚀 SENDING FOLLOW REQUEST")
-        #print("INBOX URL:", inbox_url)
-        #print("PAYLOAD:", data)
-        #print("AUTH:", auth)
+        print("\n🚀 SENDING FOLLOW REQUEST")
+        print("INBOX URL:", inbox_url)
+        print("PAYLOAD:", data)
+
 
         try:
             requests.post(inbox_url, json=data, auth=auth, timeout=5)
@@ -1040,7 +1041,7 @@ def _remote_author_id_variants(remote_id):
             seen.add(value)
     return deduped
 
-
+'''
 def _upsert_remote_author(author_payload):
     if not isinstance(author_payload, dict):
         return None
@@ -1128,6 +1129,59 @@ def _upsert_remote_author(author_payload):
             .order_by("id")
             .first()
         )
+'''
+def _upsert_remote_author(author_payload):
+    if not isinstance(author_payload, dict):
+        return None
+
+    remote_id = (author_payload.get("id") or author_payload.get("url") or "").strip()
+    if not remote_id:
+        return None
+
+    host = (author_payload.get("host") or _host_from_author_url(remote_id) or "").rstrip("/")
+    # Ensure we get displayName; it's the primary identifier for remote authors.
+    display_name = (author_payload.get("displayName") or "").strip()
+    if not display_name:
+        display_name = (author_payload.get("username") or "").strip()
+
+    # Fallback: resolve from remote author endpoint when payload omits names.
+    if not display_name:
+        remote_doc = _fetch_remote_author_doc(remote_id)
+        if isinstance(remote_doc, dict):
+            display_name = (remote_doc.get("displayName") or remote_doc.get("username") or "").strip()
+
+    if not display_name:
+        display_name = "Remote Author"
+
+    # We store a local proxy row for remote authors so follower relationships remain queryable.
+    remote_author = Author.objects.filter(remote_id=remote_id).first()
+    if remote_author:
+        changed = False
+        if display_name and remote_author.displayName != display_name:
+            remote_author.displayName = display_name
+            changed = True
+        if host and remote_author.host != host:
+            remote_author.host = host
+            changed = True
+        if changed:
+            remote_author.save(update_fields=["displayName", "host"])
+        return remote_author
+
+    username = _remote_username_seed(remote_id)
+    while Author.objects.filter(username=username).exists():
+        username = f"{username}_{uuid.uuid4().hex[:6]}"
+
+    remote_author = Author.objects.create(
+        username=username,
+        displayName=display_name,
+        host=host,
+        is_remote=True,
+        remote_id=remote_id,
+        is_approved=True,
+    )
+    remote_author.set_unusable_password()
+    remote_author.save(update_fields=["password"])
+    return remote_author
 
 
 def _refresh_remote_author(author):
