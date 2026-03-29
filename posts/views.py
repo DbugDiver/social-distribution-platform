@@ -1757,7 +1757,7 @@ def sync_pending_follows(user):
             )
 
             print(f"Status: {resp.status_code}")
-
+            print(f"Body: {resp.text}")
             if resp.status_code == 200:
                 follow.status = "accepted"
                 follow.save()
