@@ -68,6 +68,10 @@ def get_node_auth(node_url):
     try:
         from .models import Node
 
+        active_nodes = list(
+            Node.objects.filter(is_active=True).only("host", "auth_username", "auth_password")
+        )
+
         for n in candidates:
             row = Node.objects.filter(host=n, is_active=True).only(
                 "auth_username", "auth_password"
@@ -84,6 +88,18 @@ def get_node_auth(node_url):
             )
             if row and row.auth_username and row.auth_password:
                 return (row.auth_username, row.auth_password)
+
+            # Final fallback: normalize each stored host and compare in memory.
+            # This handles rows with accidental whitespace or path variants.
+            for candidate_row in active_nodes:
+                normalized_host = _normalize(getattr(candidate_row, "host", ""))
+                if not normalized_host:
+                    continue
+                if normalized_host == n or normalized_host.startswith(n) or n.startswith(normalized_host):
+                    username = (getattr(candidate_row, "auth_username", "") or "").strip()
+                    password = (getattr(candidate_row, "auth_password", "") or "").strip()
+                    if username and password:
+                        return (username, password)
     except Exception:
         pass
 
