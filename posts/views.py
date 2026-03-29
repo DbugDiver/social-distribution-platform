@@ -380,14 +380,15 @@ def _normalize_remote_post(raw, node_url):
 
 # FIX (Change 1): always set deleted=False on upsert so FRIENDS->PUBLIC posts come back
 def _upsert_remote_post_cache(data):
+    print(f"visibility set in upsert_remote_cache: {data.get("visibility")}")
     remote_id = data["remote_id"]
     if not remote_id:
         return None
-
+    remote_author = Author.objects.filter(remote_id=data["remote_author_url"]).first()
     post, created = Post.objects.update_or_create(
         remote_id=remote_id,
         defaults={
-            "author": None,
+            "author": remote_author,
             "is_remote": True,
             "node_url": data["node_url"],
             "remote_author_url": data["remote_author_url"],
@@ -397,7 +398,8 @@ def _upsert_remote_post_cache(data):
             "title": data["title"],
             "content": data["content"],
             "content_type": data["content_type"][:50],
-            "visibility": data["visibility"] if data["visibility"] in Post.Visibility.values else Post.Visibility.PUBLIC,
+            #"visibility": data["visibility"] if data["visibility"] in Post.Visibility.values else Post.Visibility.PUBLIC,
+            "visibility": data.get("visibility", Post.Visibility.PUBLIC),
             "published": _parse_datetime(data["published"]),
             "deleted": False,  # FIX: always un-delete on upsert
         },
