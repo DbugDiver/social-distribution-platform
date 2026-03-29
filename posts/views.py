@@ -1706,7 +1706,7 @@ def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""
 
 
 # ---------- Stream ----------
-@login_required
+
 def sync_pending_follows(user):
     """
     Check all pending follow requests sent by `user` to remote authors.
@@ -1752,8 +1752,8 @@ def sync_pending_follows(user):
                 print(f"follow request being saved")
                 follow.save()
 
-        except Exception:
-            # silently ignore failures (important for stability)
+        except Exception as e:
+            print(f"ERROR in sync_pending_follows: {e}")
             continue
 @login_required
 def stream(request):
