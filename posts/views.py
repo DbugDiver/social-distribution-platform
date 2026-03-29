@@ -189,7 +189,7 @@ def _normalize_author_id(value):
     print(f"Rejecting url inside _normalize_author_id")
     return ""
 
-
+'''
 def _remote_like_matches_user(raw_like, user):
     author = raw_like.get("author", {}) if isinstance(raw_like.get("author"), dict) else {}
     candidate_ids = {
@@ -201,7 +201,7 @@ def _remote_like_matches_user(raw_like, user):
         _normalize_author_id(f"{_site_url()}/authors/{user.id}"),
     }
     return bool(candidate_ids.intersection(local_ids))
-
+'''
 
 def _normalized_local_author_ids(user):
     base = _site_url()
@@ -211,20 +211,6 @@ def _normalized_local_author_ids(user):
     }
 
 
-def _remote_like_entry_matches_user(entry, user):
-    if not isinstance(entry, dict):
-        return False
-
-    author = entry.get("author", {}) if isinstance(entry.get("author"), dict) else {}
-
-    candidates = {
-        _normalize_author_id(entry.get("author_id", "")),
-        _normalize_author_id(author.get("id", "")),
-        _normalize_author_id(author.get("url", "")),
-    }
-
-    local_ids = _normalized_local_author_ids(user)
-    return bool(candidates.intersection(local_ids))
 
 
 def _parse_datetime(value):
@@ -534,6 +520,7 @@ def _candidate_single_post_endpoints(node_url, remote_post_id):
         f"{base}/{rid}/",
     ]
 
+'''
 def _get_remote_post_or_404(post):
     if not post.is_remote or not post.node_url or not post.remote_id:
         return post
@@ -550,6 +537,7 @@ def _get_remote_post_or_404(post):
             return updated
 
     return post
+'''
 
 def _check_remote_post_visibility(post):
     """
@@ -665,7 +653,7 @@ def _url_variants(url):
             seen.add(value)
     return deduped
 
-
+'''
 def _author_url_variants(url):
     raw = (url or "").strip().rstrip("/")
     if not raw:
@@ -692,7 +680,7 @@ def _author_url_variants(url):
         variants.update(_url_variants(nested_variant))
 
     return variants
-
+'''
 
 def _post_url_variants(url):
     raw = (url or "").strip()
@@ -1408,91 +1396,7 @@ def _fetch_remote_comments(post, viewer=None, include_like_state=True):
         })
     return normalized
 
-def _fetch_remote_likes(post):
-    data = None
-    working_url = None
 
-    candidate_urls = _candidate_remote_likes_urls(post)
-    auth_candidates = _auth_candidates_for_post(post)
-
-    for likes_url in candidate_urls:
-        for auth in auth_candidates:
-            try:
-                resp = requests.get(
-                    likes_url,
-                    auth=auth,
-                    timeout=5,
-                    headers={"Accept": "application/json"},
-                )
-
-                if resp.status_code != 200:
-                    continue
-
-                try:
-                    payload = resp.json()
-                except Exception as e:
-                    continue
-
-                data = payload
-                working_url = likes_url
-                break
-
-            except Exception as e:
-                continue
-
-        if data is not None:
-            break
-
-    if not data:
-        return []
-
-    if isinstance(data, list):
-        items = data
-    elif isinstance(data, dict):
-        items = (
-            data.get("src")
-            or data.get("items")
-            or data.get("likes")
-            or data.get("results")
-            or []
-        )
-    else:
-        items = []
-
-    if isinstance(items, dict):
-        items = [items]
-
-    if not isinstance(items, list):
-        return []
-
-    normalized = []
-    for raw in items:
-        if not isinstance(raw, dict):
-            continue
-
-        author = raw.get("author", {}) if isinstance(raw.get("author"), dict) else {}
-
-        normalized.append({
-            "id": raw.get("id") or "",
-            "author_id": (
-                author.get("id")
-                or author.get("url")
-                or raw.get("author_id")
-                or ""
-            ),
-            "author": author,
-            "author_name": (
-                author.get("displayName")
-                or author.get("username")
-                or raw.get("author_name")
-                or "Remote Author"
-            ),
-            "summary": raw.get("summary", ""),
-            "published": raw.get("published", ""),
-            "object": raw.get("object", ""),
-            "source_likes_url": working_url or "",
-        })
-    return normalized
 
 def _send_remote_comment(user, post, text):
     comment_id = str(uuid.uuid4())
@@ -1705,87 +1609,7 @@ def _send_remote_comment(user, post, text):
     return False, last_error
 
 
-def _send_remote_like(user, post):
-    like_id = str(uuid.uuid4())
-    payload = {
-        "type": "like",
-        "id": f"{_site_url()}/api/authors/{user.id}/liked/{like_id}",
-        "author": _local_author_payload(user),
-        "object": post.remote_id,
-        "published": timezone.now().isoformat(),
-        "summary": f"{getattr(user, 'displayName', '') or getattr(user, 'username', 'A user')} likes your post",
-    }
 
-    payload_variants = [
-        payload,
-        {
-            **payload,
-            "type": "Like",
-        },
-    ]
-
-    for likes_url in _candidate_remote_likes_urls(post):
-        for candidate_payload in payload_variants:
-            for auth in _auth_candidates_for_post(post):
-                try:
-                    resp = requests.post(
-                        likes_url,
-                        json=candidate_payload,
-                        auth=auth,
-                        timeout=5,
-                        allow_redirects=False,
-                        headers={
-                            "Accept": "application/json",
-                            "Content-Type": "application/json",
-                        },
-                    )
-
-                    if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True
-                except Exception:
-                    continue
-
-    for inbox_url in _candidate_remote_inbox_urls(post):
-        for candidate_payload in payload_variants:
-            for auth in _auth_candidates_for_post(post):
-                try:
-                    resp = requests.post(
-                        inbox_url,
-                        json=candidate_payload,
-                        auth=auth,
-                        timeout=5,
-                        allow_redirects=False,
-                        headers={
-                            "Accept": "application/json",
-                            "Content-Type": "application/json",
-                        },
-                    )
-                    if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True
-                except Exception:
-                    continue
-
-    for node_inbox in _candidate_node_inbox_urls(post.node_url):
-        for candidate_payload in payload_variants:
-            for auth in _auth_candidates_for_post(post):
-                try:
-                    resp = requests.post(
-                        node_inbox,
-                        json=candidate_payload,
-                        auth=auth,
-                        timeout=5,
-                        allow_redirects=False,
-                        headers={
-                            "Accept": "application/json",
-                            "Content-Type": "application/json",
-                        },
-                    )
-                    if resp.status_code in [200, 201, 202, 204, 409]:
-                        return True
-                except Exception:
-                    continue
-
-    return False
 
 
 def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""):
@@ -2449,7 +2273,188 @@ def author_posts(request, author_id):
 
 
 # ---------- Like post ----------
+def _remote_like_entry_matches_user(entry, user):
+    if not isinstance(entry, dict):
+        return False
 
+    author = entry.get("author", {}) if isinstance(entry.get("author"), dict) else {}
+
+    candidates = {
+        _normalize_author_id(entry.get("author_id", "")),
+        _normalize_author_id(author.get("id", "")),
+        _normalize_author_id(author.get("url", "")),
+    }
+
+    local_ids = _normalized_local_author_ids(user)
+    return bool(candidates.intersection(local_ids))
+
+def _send_remote_like(user, post):
+    like_id = str(uuid.uuid4())
+    payload = {
+        "type": "like",
+        "id": f"{_site_url()}/api/authors/{user.id}/liked/{like_id}",
+        "author": _local_author_payload(user),
+        "object": post.remote_id,
+        "published": timezone.now().isoformat(),
+        "summary": f"{getattr(user, 'displayName', '') or getattr(user, 'username', 'A user')} likes your post",
+    }
+
+    payload_variants = [
+        payload,
+        {
+            **payload,
+            "type": "Like",
+        },
+    ]
+
+    for likes_url in _candidate_remote_likes_urls(post):
+        for candidate_payload in payload_variants:
+            for auth in _auth_candidates_for_post(post):
+                try:
+                    resp = requests.post(
+                        likes_url,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
+
+    for inbox_url in _candidate_remote_inbox_urls(post):
+        for candidate_payload in payload_variants:
+            for auth in _auth_candidates_for_post(post):
+                try:
+                    resp = requests.post(
+                        inbox_url,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
+
+    for node_inbox in _candidate_node_inbox_urls(post.node_url):
+        for candidate_payload in payload_variants:
+            for auth in _auth_candidates_for_post(post):
+                try:
+                    resp = requests.post(
+                        node_inbox,
+                        json=candidate_payload,
+                        auth=auth,
+                        timeout=5,
+                        allow_redirects=False,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code in [200, 201, 202, 204, 409]:
+                        return True
+                except Exception:
+                    continue
+
+    return False
+
+def _fetch_remote_likes(post):
+    data = None
+    working_url = None
+
+    candidate_urls = _candidate_remote_likes_urls(post)
+    auth_candidates = _auth_candidates_for_post(post)
+
+    for likes_url in candidate_urls:
+        for auth in auth_candidates:
+            try:
+                resp = requests.get(
+                    likes_url,
+                    auth=auth,
+                    timeout=5,
+                    headers={"Accept": "application/json"},
+                )
+
+                if resp.status_code != 200:
+                    continue
+
+                try:
+                    payload = resp.json()
+                except Exception as e:
+                    continue
+
+                data = payload
+                working_url = likes_url
+                break
+
+            except Exception as e:
+                continue
+
+        if data is not None:
+            break
+
+    if not data:
+        return []
+
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        items = (
+            data.get("src")
+            or data.get("items")
+            or data.get("likes")
+            or data.get("results")
+            or []
+        )
+    else:
+        items = []
+
+    if isinstance(items, dict):
+        items = [items]
+
+    if not isinstance(items, list):
+        return []
+
+    normalized = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+
+        author = raw.get("author", {}) if isinstance(raw.get("author"), dict) else {}
+
+        normalized.append({
+            "id": raw.get("id") or "",
+            "author_id": (
+                author.get("id")
+                or author.get("url")
+                or raw.get("author_id")
+                or ""
+            ),
+            "author": author,
+            "author_name": (
+                author.get("displayName")
+                or author.get("username")
+                or raw.get("author_name")
+                or "Remote Author"
+            ),
+            "summary": raw.get("summary", ""),
+            "published": raw.get("published", ""),
+            "object": raw.get("object", ""),
+            "source_likes_url": working_url or "",
+        })
+    return normalized
 @login_required
 def like_post(request, post_id):
     post = get_object_or_404(Post, id=post_id, deleted=False)
@@ -2481,6 +2486,7 @@ def like_post(request, post_id):
 
 
 # ---------- Like comment ----------
+
 
 @login_required
 def like_comment(request, post_id, comment_id):
