@@ -2455,7 +2455,7 @@ def _fetch_remote_likes(post):
             "source_likes_url": working_url or "",
         })
     return normalized
-'''
+
 @login_required
 def like_post(request, post_id):
     post = get_object_or_404(Post, id=post_id, deleted=False)
@@ -2493,18 +2493,18 @@ def like_post(request, post_id):
     #object_id = normalize(post.remote_id if post.is_remote else f"{_site_url()}/api/authors/{post.author.id}/posts/{post.id}")
 
     object_id = (post.remote_id or "").strip().rstrip("/")
-    # ✅ STEP 1 — BLOCK DUPLICATE
+    #  STEP 1 — BLOCK DUPLICATE
     if Like.objects.filter(author_id=author_id, object_id=object_id).exists():
         return redirect(request.META.get("HTTP_REFERER", "/"))
 
-    # ✅ STEP 2 — STORE
+    #  STEP 2 — STORE
     Like.objects.create(
         author_id=author_id,
         object_id=object_id,
         summary="..."
     )
 
-    # ✅ STEP 3 — ONLY SEND IF NEW
+    #  STEP 3 — ONLY SEND IF NEW
     if post.is_remote:
         if not _is_post_from_active_remote_node(post):
             return HttpResponseForbidden("Remote node is not connected.")
@@ -2523,7 +2523,7 @@ def like_post(request, post_id):
         or redirect("posts:detail", post_id=post.id).url
 )
     return redirect(next_url)
-
+'''
 # ---------- Like comment ----------
 
 
