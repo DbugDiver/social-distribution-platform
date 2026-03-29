@@ -353,8 +353,21 @@ def api_get_follow_requests(request, pk):
 @api_view(["GET", "PUT", "DELETE"])
 @permission_classes([IsAuthenticated])
 def api_accept_reject_followers(request, pk, foreign_id):
+    print("---- REQUEST DEBUG ----")
+    print("Method:", request.method)
+    print("Path:", request.path)
+    print("GET params:", request.GET)
+    print("Body (raw):", request.body)
+    print("Headers:", dict(request.headers))
+    print("-----------------------")
     # decode foreign author
+    decoded_id = unquote(foreign_id)
+
+    if not decoded_id.startswith("http"):
+        print("Invalid FQID format")
+    return Response({"detail": "Invalid FQID"}, status=400)
     decoded_id = unquote(foreign_id).rstrip("/")
+    
     target = get_object_or_404(Author, pk=pk)
     # find or create remote follower
     remote_follower = Author.objects.filter(remote_id=decoded_id).first()
