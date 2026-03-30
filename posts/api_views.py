@@ -23,7 +23,8 @@ Citation: chatGpt 5.2, OpenAI, 2026-03-23, https://chatgpt.com/c/69c1857e-4d80-8
 
 def _serialize_entry(post, request):
     """Shared serializer for entry objects to match the spec."""
-    base_url = request.build_absolute_uri("/").rstrip("/") 
+    base_url = request.build_absolute_uri("/").rstrip("/")
+
     if post.is_remote:
         entry_id = post.remote_id or ""
         author_obj = _remote_author_obj_from_post(post)

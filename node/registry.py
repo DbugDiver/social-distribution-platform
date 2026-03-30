@@ -59,7 +59,6 @@ def get_configured_nodes(exclude_local=True):
 
     return nodes
 
-
 def get_node_auth(node_url):
     candidates = _node_auth_candidates(node_url)
     if not candidates:

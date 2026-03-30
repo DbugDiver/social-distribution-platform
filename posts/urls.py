@@ -59,6 +59,8 @@ urlpatterns = [
 
     # ===== Public Stream =====
     path("api/stream/", api_views.stream_api, name="api-stream"),
+    path("api/feed/", api_views.public_posts_api, name="api_feed"),
+
     path("api/entries/public/", api_views.public_posts_api, name="api-public-entries"),
 
     # ===== Public Endpoints =====

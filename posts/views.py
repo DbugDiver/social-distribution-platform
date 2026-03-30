@@ -101,31 +101,94 @@ def _auth_for_node(node_url):
         return None
     return _cached_auth_for_node(normalized)
 
-
 def _candidate_post_endpoints(node_url):
     base = node_url.rstrip("/")
     return [
         f"{base}/api/entries/public/",
         f"{base}/api/entries/",
+        f"{base}/api/feed/",
     ]
 
+# Changes to make feed work with fuchsia:
 def _extract_collection_items(data):
     if isinstance(data, list):
         return data
-
-    if not isinstance(data, dict):
-        return []
-
-    for key in ("src", "items", "posts", "results"):
-        value = data.get(key)
-        if isinstance(value, list):
-            return value
-
+    if isinstance(data, dict):
+        for key in ["items", "posts", "results", "src"]:
+            if key in data and isinstance(data[key], list):
+                return data[key]
     return []
 
 
+def _candidate_author_entries_urls(node_url, author_obj):
+    base = node_url.rstrip("/")
+    raw_id = str(author_obj.get("id", "")).rstrip("/")
+    if not raw_id:
+        return []
+
+    uuid_id = raw_id.split("/")[-1]
+
+    urls = [
+        f"{base}/api/authors/{uuid_id}/entries/",
+        f"{base}/api/authors/{raw_id}/entries/",
+    ]
+
+    deduped = []
+    seen = set()
+    for u in urls:
+        if u and u not in seen:
+            deduped.append(u)
+            seen.add(u)
+    return deduped
+
+
+def _fetch_remote_posts_via_authors(node):
+    node = node.rstrip("/")
+    auth = _auth_for_node(node)
+
+    authors_data = _try_get_json(f"{node}/api/authors/", auth=auth, timeout=3)
+    if not authors_data:
+        return []
+
+    authors = _extract_collection_items(authors_data)
+    if not isinstance(authors, list):
+        return []
+
+    cached = []
+
+    for author in authors:
+        if not isinstance(author, dict):
+            continue
+
+        for endpoint in _candidate_author_entries_urls(node, author):
+            data = _try_get_json(endpoint, auth=auth, timeout=3)
+            if not data:
+                continue
+
+            items = _extract_collection_items(data)
+            if not isinstance(items, list):
+                continue
+
+            for raw in items:
+                if not isinstance(raw, dict):
+                    continue
+
+                normalized = _normalize_remote_post(raw, node)
+                if not normalized["remote_id"]:
+                    continue
+
+                if normalized["visibility"] != Post.Visibility.PUBLIC:
+                    continue
+
+                post = _upsert_remote_post_cache(normalized)
+                if post:
+                    cached.append(post)
+
+            break
+
+    return cached
+
 def _normalize_visibility_value(value):
-    print(f"Herre is passed raw Value = {raw}")
     raw = (value or Post.Visibility.PUBLIC).strip().upper()
     print(f"Herre is raw Value = {raw}")
     if raw == "PUBLIC":
@@ -144,10 +207,13 @@ def _try_get_json(url, auth=None, timeout=2):
             timeout=timeout,
             headers={"Accept": "application/json"},
         )
+        print(f"GET {url} -> {resp.status_code}")
+        print(f"Response body: {resp.text[:300]}")
+
         if resp.status_code == 200:
             return resp.json()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"_try_get_json failed for {url}: {e}")
     return None
 
 
@@ -371,7 +437,11 @@ def _upsert_remote_post_cache(data):
     remote_id = data["remote_id"]
     if not remote_id:
         return None
-    remote_author = Author.objects.filter(remote_id=data["remote_author_url"]).first()
+
+    remote_author = Author.objects.filter(
+        remote_id__in=_author_ref_variants(data["remote_author_url"])
+    ).first()
+
     post, created = Post.objects.update_or_create(
         remote_id=remote_id,
         defaults={
@@ -458,13 +528,15 @@ def _fetch_remote_public_posts():
             # Keep individual probe timeouts short so the stream never stalls.
             probe_timeout = max(0.5, min(1.2, remaining))
             data = _try_get_json(endpoint, auth=auth, timeout=probe_timeout)
+            print(f"Fetching from endpoint: {endpoint} -- got data?: {data is not None}")
+
             if not data:
                 continue
 
             items = _extract_collection_items(data)
             if not isinstance(items, list):
                 continue
-
+            print(f"Items fetched from {endpoint}: {len(items) if isinstance(items, list) else 'Not a list!'}")
             found_feed = True
 
             for raw in items:
@@ -472,6 +544,8 @@ def _fetch_remote_public_posts():
                     continue
 
                 normalized = _normalize_remote_post(raw, node)
+                print(f"RAW post: {raw}")
+                print(f"NORMALIZED post: {normalized}")
                 if not normalized["remote_id"]:
                     continue
 
@@ -485,6 +559,14 @@ def _fetch_remote_public_posts():
                     cached.append(post)
 
             break
+        
+        # fallback if no global feed worked
+        if not found_feed:
+            author_posts = _fetch_remote_posts_via_authors(node)
+            for post in author_posts:
+                seen_remote_ids.add(post.remote_id)
+            cached.extend(author_posts)
+            found_feed = bool(author_posts)
 
         # FIX (Change 2): only mark missing PUBLIC posts as deleted.
         # FRIENDS/UNLISTED posts won't appear in the public feed, so they
@@ -498,7 +580,7 @@ def _fetch_remote_public_posts():
             ).exclude(
                 remote_id__in=seen_remote_ids
             ).update(deleted=True)
-
+    cache.delete("federation_public_posts_refresh_lock")
     return cached
 
 
@@ -1609,9 +1691,6 @@ def _send_remote_comment(user, post, text):
     return False, last_error
 
 
-
-
-
 def _send_remote_comment_like(user, post, remote_comment_id, remote_likes_url=""):
     like_id = str(uuid.uuid4())
     likes_url = (remote_likes_url or "").strip()
@@ -2455,6 +2534,7 @@ def _fetch_remote_likes(post):
             "source_likes_url": working_url or "",
         })
     return normalized
+
 @login_required
 def like_post(request, post_id):
     post = get_object_or_404(Post, id=post_id, deleted=False)
