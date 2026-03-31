@@ -199,6 +199,7 @@ def _normalize_visibility_value(value):
         return Post.Visibility.UNLISTED
     return Post.Visibility.PUBLIC
 
+
 def _try_get_json(url, auth=None, timeout=2):
     try:
         resp = requests.get(
@@ -2563,6 +2564,8 @@ def like_post(request, post_id):
         or redirect("posts:detail", post_id=post.id).url
     )
     return redirect(next_url)
+
+
 '''
 @login_required
 def like_post(request, post_id):
@@ -2603,6 +2606,7 @@ def like_post(request, post_id):
 )
     return redirect(next_url)
 '''
+
 # ---------- Like comment ----------
 
 

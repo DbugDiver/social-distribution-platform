@@ -667,7 +667,7 @@ def author_entries_api(request, author_id):
         .select_related("author")
         .order_by("-published", "-created")
     )
-
+    
     # Base path for pagination
     base_path = reverse(
         "posts:api-author-entries",
@@ -830,6 +830,7 @@ def _like_obj(like: Like, request):
         "id": request.build_absolute_uri(like_path),
         "published": like.created.isoformat(),
     }
+
 
 _comment_obj_public = _comment_obj
 _like_obj_public = _like_obj
