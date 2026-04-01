@@ -718,13 +718,13 @@ def author_entries_api(request, author_id):
             following_id=author_id,
             status="accepted"
         ).exists()
-
+        print(f"is follower found: {is_follower}")
         is_friend = is_follower and Follower.objects.filter(
             follower_id=author_id,
             following=user,
             status="accepted"
         ).exists()
-
+        print(f"is friend found: {is_friend}")
 
     # ✅ Apply visibility filtering (CORE LOGIC)
     if not user.is_authenticated:
