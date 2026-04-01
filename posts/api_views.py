@@ -654,6 +654,7 @@ def stream_api(request):
     )
     return JsonResponse(payload, status=200)
 
+'''
 def author_entries_api(request, author_id):
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
@@ -683,6 +684,80 @@ def author_entries_api(request, author_id):
         serializer=_serialize_entry,
     )
 
+    return JsonResponse(payload, status=200)
+'''
+def author_entries_api(request, author_id):
+    print(f"Author id recieved = {author_id}")
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET"])
+
+    # ✅ Ensure author exists
+    author = get_object_or_404(Author, id=author_id)
+
+    user = request.user
+
+    # ✅ Base queryset
+    posts = (
+        Post.objects.filter(
+            author_id=author_id,
+            deleted=False
+        )
+        .select_related("author")
+        .order_by("-published", "-created")
+    )
+
+    # ✅ Determine relationship
+    is_self = user.is_authenticated and str(user.id) == str(author_id)
+
+    is_follower = False
+    is_friend = False
+    
+    if user.is_authenticated and not is_self:
+        is_follower = Follower.objects.filter(
+            follower=user,
+            following_id=author_id,
+            status="accepted"
+        ).exists()
+
+        is_friend = is_follower and Follower.objects.filter(
+            follower_id=author_id,
+            following=user,
+            status="accepted"
+        ).exists()
+
+
+    # ✅ Apply visibility filtering (CORE LOGIC)
+    if not user.is_authenticated:
+        posts = posts.filter(visibility=Post.Visibility.PUBLIC)
+
+    elif is_self or is_friend:
+        pass  # show ALL posts
+
+    elif is_follower:
+        posts = posts.filter(
+            visibility__in=[
+                Post.Visibility.PUBLIC,
+                Post.Visibility.UNLISTED
+            ]
+        )
+
+    else:
+        posts = posts.filter(visibility=Post.Visibility.PUBLIC)
+
+    # ✅ Pagination base path
+    base_path = reverse(
+        "posts:api-author-entries",
+        kwargs={"author_id": author_id}
+    )
+
+    # ✅ Paginated response
+    payload = _paginated_collection(
+        request=request,
+        base_path=base_path,
+        collection_type="entries",
+        queryset=posts,
+        serializer=_serialize_entry,
+    )
     return JsonResponse(payload, status=200)
 
 def _remote_author_obj_from_payload(author_payload):
