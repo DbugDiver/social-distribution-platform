@@ -185,6 +185,7 @@ def _can_view_post(user, post: Post):
         return True
 
     if not user.is_authenticated:
+        print("Why not")
         return False
 
     if user.id == post.author_id:
@@ -289,7 +290,22 @@ def post_detail_api(request, author_id, post_id):
         return HttpResponseNotAllowed(["GET"])
 
     post = get_object_or_404(Post, id=post_id, author_id=author_id)
+    '''
     if not _can_view_post(request.user, post):
+        return JsonResponse({"detail": "Not allowed."}, status=403)
+    '''
+    # 🔥 CORRECT visibility logic for SINGLE entry endpoint
+    if post.visibility == Post.Visibility.PUBLIC:
+        pass
+
+    elif post.visibility == Post.Visibility.FRIENDS:
+        if not request.user.is_authenticated:
+            return JsonResponse({"detail": "Not allowed."}, status=403)
+
+    elif post.visibility == Post.Visibility.UNLISTED:
+        pass  # accessible via link
+
+    else:
         return JsonResponse({"detail": "Not allowed."}, status=403)
 
     post_path = reverse(
