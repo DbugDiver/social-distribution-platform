@@ -290,6 +290,10 @@ def post_detail_api(request, author_id, post_id):
         return HttpResponseNotAllowed(["GET"])
 
     post = get_object_or_404(Post, id=post_id, author_id=author_id)
+    is_authenticated = (
+        request.user.is_authenticated or
+        request.META.get("HTTP_AUTHORIZATION") is not None
+    )
     '''
     if not _can_view_post(request.user, post):
         return JsonResponse({"detail": "Not allowed."}, status=403)
@@ -299,8 +303,10 @@ def post_detail_api(request, author_id, post_id):
         pass
 
     elif post.visibility == Post.Visibility.FRIENDS:
-        if not request.user.is_authenticated:
+        
+        if not is_authenticated:
             return JsonResponse({"detail": "Not allowed."}, status=403)
+        
 
     elif post.visibility == Post.Visibility.UNLISTED:
         pass  # accessible via link
