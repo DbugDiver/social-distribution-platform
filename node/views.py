@@ -35,8 +35,8 @@ def inspect_remote_authors(node):
     except Exception as e:
         print("AUTHORS FETCH ERROR:", e)
         return None
-    
-    
+
+
 # TODO: DELETE THIS FUNCTION BEFORE SUBMISSION
 def discover_remote_endpoints(node):
     base = (node.host or "").rstrip("/")
@@ -140,18 +140,19 @@ def _federated_authors():
         seen.add((local_site, author.username.lower()))
 
     # Remote authors from configured peer nodes.
-    for node in get_configured_nodes(exclude_local=True):
-        node = (node or "").rstrip("/")
-        if not node or node == local_site:
+    active_nodes = Node.objects.filter(is_active=True)
+    for node_obj in active_nodes:
+        node_url = (node_obj.host or "").rstrip("/")
+        if not node_url or node_url == local_site:
             continue
 
         probe_urls = [
-            f"{node}/api/authors/?page=1&size=200&_federated=1",
-            f"{node}/api/authors/?page=1&size=200",
-            f"{node}/api/authors/",
+            f"{node_url}/api/authors/?page=1&size=200&_federated=1",
+            f"{node_url}/api/authors/?page=1&size=200",
+            f"{node_url}/api/authors/",
         ]
 
-        auth = _auth_for_node(node)
+        auth = _auth_for_node(node_url)
         auth_candidates = [auth, None] if auth else [None]
 
         for probe in probe_urls:
@@ -393,3 +394,15 @@ def handle_approval(request):
             author.delete()
 
     return redirect("approvals")
+
+
+@user_passes_test(superuser_required)
+def toggle_node(request, node_id):
+    node = get_object_or_404(Node, pk=node_id)
+    # Flipping the boolean (Assuming the field is 'is_active')
+    node.is_active = not node.is_active
+    node.save()
+
+    status = "enabled" if node.is_active else "disabled"
+    messages.success(request, f"Remote node {node.host} has been {status}.")
+    return redirect("manage-nodes")

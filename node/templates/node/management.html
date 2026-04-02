@@ -35,6 +35,41 @@
                 padding: 2rem;
                 width: 100%;
             }
+
+            /* --- NEW SQUIRCLE EMOJI BUTTON STYLES --- */
+            .action-btn {
+                width: 42px;
+                height: 42px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 10px;
+                text-decoration: none;
+                font-size: 1.3rem;
+                margin-left: 8px;
+                transition: transform 0.1s ease, filter 0.2s ease;
+                box-sizing: border-box;
+            }
+
+            .action-btn:hover {
+                transform: scale(1.08);
+                filter: brightness(0.95);
+            }
+
+            .btn-delete {
+                background-color: #fee2e2;
+                border: 2px solid #fca5a5;
+            }
+
+            .btn-enable {
+                background-color: #ecfdf5;
+                border: 2px solid #6ee7b7;
+            }
+
+            .btn-disable {
+                background-color: #fef3c7;
+                border: 2px solid #fcd34d;
+            }
         </style>
     </head>
     <body class="node-admin-page">
@@ -160,27 +195,34 @@
                             >
                                 Auth User: {{ node.auth_username }} &bull;
                                 {% if node.is_active %}
-                                    <span style="color: #00b894">Active</span>
+                                <span style="color: #00b894">Active</span>
                                 {% else %}
-                                    <span style="color: #ef4444">Disabled</span>
+                                <span style="color: #ef4444">Disabled</span>
                                 {% endif %}
                             </div>
                         </div>
-                        <span class="author-actions">
+
+                        <div style="display: flex; align-items: center;">
                             <a
-                                class="icon-btn delete-btn"
-                                href="{% url 'delete-node' node.pk %}"
-                                style="
-                                    text-decoration: none;
-                                    font-size: 1.2rem;
-                                    cursor: pointer;
-                                    color: #ef4444;
-                                    border: 1px solid rgba(239, 68, 68, 0.25);
-                                "
+                                href="{% url 'toggle-node' node.id %}"
+                                title="{% if node.is_active %}Disable Node{% else %}Enable Node{% endif %}"
+                                class="action-btn {% if node.is_active %}btn-disable{% else %}btn-enable{% endif %}"
                             >
-                                🗑
+                                {% if node.is_active %}
+                                    🛑
+                                {% else %}
+                                    ⚡
+                                {% endif %}
                             </a>
-                        </span>
+
+                            <a
+                                href="{% url 'delete-node' node.id %}"
+                                title="Delete Node"
+                                class="action-btn btn-delete"
+                            >
+                                🗑️
+                            </a>
+                        </div>
                     </li>
                     {% empty %}
                     <li
@@ -204,6 +246,11 @@
                     style="
                         color: #00796b;
                         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+                        text-decoration: none;
+                        font-weight: 700;
+                        padding: 0.5rem 1rem;
+                        border-radius: 20px;
+                        background: white;
                     "
                 >
                     ← Back to Node Admin
