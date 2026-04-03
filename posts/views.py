@@ -2564,7 +2564,8 @@ def like_post(request, post_id):
         #  CHECK DB (no session anymore)
         existing = Like.objects.filter(
             author=request.user,
-            remote_id=str(post.remote_id)
+            remote_id=str(post.remote_id),
+            is_remote = True
         ).exists()
 
         if existing:
@@ -2573,7 +2574,8 @@ def like_post(request, post_id):
         #  STORE LOCALLY
         Like.objects.create(
             author=request.user,
-            remote_id=str(post.remote_id)
+            remote_id=str(post.remote_id),
+            is_remote = True
         )
 
         #  SEND TO REMOTE
@@ -2585,14 +2587,14 @@ def like_post(request, post_id):
         if not _can_interact_with_post(request.user, post):
             return HttpResponseForbidden("Not allowed.")
 
-        Like.objects.get_or_create(author=request.user, post=post)
+        Like.objects.get_or_create(author=request.user, post=post, is_remote = True)
 
-    next_url = (
-        request.POST.get("next")
-        or request.META.get("HTTP_REFERER")
-        or redirect("posts:detail", post_id=post.id).url
-    )
-    return redirect(next_url)
+        next_url = (
+            request.POST.get("next")
+            or request.META.get("HTTP_REFERER")
+            or redirect("posts:detail", post_id=post.id).url
+        )
+        return redirect(next_url)
 
 
 '''
