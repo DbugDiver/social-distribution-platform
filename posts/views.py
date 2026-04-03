@@ -2795,7 +2795,7 @@ def _push_post_to_remote_recipients(post):
         target_ids.update(mutual_friend_ids)
     elif post.visibility == Post.Visibility.UNLISTED:
         print("Post created unlisted succesfully")
-        target_ids.update(following_ids)
+        target_ids.update(follower_ids)
     elif post.visibility == Post.Visibility.FRIENDS:
         target_ids.update(mutual_friend_ids)
 
