@@ -12,4 +12,5 @@ urlpatterns = [
     path("add-author/", views.add_author_page, name="add-author"),
     path("handle-approval/", views.handle_approval, name="handle_approval"),
     path("delete-author/<uuid:author_id>/", views.delete_author, name="delete-author"),
+    path("all-posts/", views.all_posts_list, name="all_posts_list"),
 ]

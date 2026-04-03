@@ -342,6 +342,13 @@ def manage_nodes(request):
     return render(request, "node/management.html", {"form": form, "nodes": nodes})
 
 @user_passes_test(superuser_required)
+def all_posts_list(request):
+    posts = Post.objects.filter(
+        visibility__in=["PUBLIC", "FRIENDS", "UNLISTED"]
+    ).order_by('-created')
+    return render(request, 'node/all_posts.html', {'posts': posts})
+
+@user_passes_test(superuser_required)
 def delete_node(request, node_id):
     node = get_object_or_404(Node, pk=node_id)
     node.delete()
