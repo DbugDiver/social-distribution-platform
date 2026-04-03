@@ -2540,7 +2540,7 @@ def _fetch_remote_likes(post):
 def like_post(request, post_id):
     post = get_object_or_404(Post, id=post_id, deleted=False)
     liked_remote_posts = set(request.session.get("liked_remote_posts", []))
-    '''
+    
     if post.is_remote:
         if not _is_post_from_active_remote_node(post):
             return HttpResponseForbidden("Remote node is not connected.")
@@ -2556,38 +2556,13 @@ def like_post(request, post_id):
         #liked_remote_posts = set(request.session.get("liked_remote_posts", []))
         liked_remote_posts.add(str(post.remote_id))
         request.session["liked_remote_posts"] = list(liked_remote_posts)
-    '''
-    if post.is_remote:
-        if not _is_post_from_active_remote_node(post):
-            return HttpResponseForbidden("Remote node is not connected.")
-
-        #  CHECK DB (no session anymore)
-        existing = Like.objects.filter(
-            author=request.user,
-            remote_id=str(post.remote_id),
-            is_remote = True
-        ).exists()
-
-        if existing:
-            return redirect(request.META.get("HTTP_REFERER", "/"))
-
-        #  STORE LOCALLY
-        Like.objects.create(
-            author=request.user,
-            remote_id=str(post.remote_id),
-            is_remote = True
-        )
-
-        #  SEND TO REMOTE
-        ok = _send_remote_like(request.user, post)
-        if not ok:
-            return HttpResponseForbidden("Could not send remote like.")
+  
 
     else:
         if not _can_interact_with_post(request.user, post):
             return HttpResponseForbidden("Not allowed.")
 
-        Like.objects.get_or_create(author=request.user, post=post, is_remote = True)
+        Like.objects.get_or_create(author=request.user, post=post)
 
         next_url = (
             request.POST.get("next")
