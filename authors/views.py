@@ -1215,12 +1215,14 @@ def _refresh_remote_authors(authors):
 
 def _local_author_payload(author):
     base = settings.SITE_URL.rstrip("/")
+    api_base = f"{base}/api"
     author_url = f"{base}/api/authors/{author.id}"
     return {
         "type": "author",
         "id": author_url,
         "url": author_url,
-        "host": base,
+        #"host": base,
+        "host": f"{api_base}/",
         "displayName": author.displayName or author.username,
     }
 
