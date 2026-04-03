@@ -2539,16 +2539,20 @@ def _fetch_remote_likes(post):
 @login_required
 def like_post(request, post_id):
     post = get_object_or_404(Post, id=post_id, deleted=False)
-
+    liked_remote_posts = set(request.session.get("liked_remote_posts", []))
     if post.is_remote:
         if not _is_post_from_active_remote_node(post):
             return HttpResponseForbidden("Remote node is not connected.")
+        
+        #  CHECK FIRST # to avoid sending mulitple likes
+        if str(post.remote_id) in liked_remote_posts: 
+            return redirect(request.META.get("HTTP_REFERER", "/"))  # already liked → do nothing
 
         ok = _send_remote_like(request.user, post)
         if not ok:
             return HttpResponseForbidden("Could not send remote like.")
 
-        liked_remote_posts = set(request.session.get("liked_remote_posts", []))
+        #liked_remote_posts = set(request.session.get("liked_remote_posts", []))
         liked_remote_posts.add(str(post.remote_id))
         request.session["liked_remote_posts"] = list(liked_remote_posts)
 
