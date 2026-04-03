@@ -2794,9 +2794,11 @@ def _push_post_to_remote_recipients(post):
         target_ids.update(follower_ids)
         target_ids.update(mutual_friend_ids)
     elif post.visibility == Post.Visibility.UNLISTED:
+        print("Post created unlisted succesfully")
         target_ids.update(following_ids)
     elif post.visibility == Post.Visibility.FRIENDS:
         target_ids.update(mutual_friend_ids)
+
 
     # Push to remote authors only
     recipients = (
@@ -2805,7 +2807,8 @@ def _push_post_to_remote_recipients(post):
         .exclude(remote_id="")
         .distinct()
     )
-
+    print(f"Sedning post to receipietns: {target_ids}")
+    print(f"receipents Auhtors = {recipients}")
     for remote_author in recipients:
         _send_post_to_remote_inbox(remote_author, post)
 
