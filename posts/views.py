@@ -2564,7 +2564,7 @@ def like_post(request, post_id):
         #  CHECK DB (no session anymore)
         existing = Like.objects.filter(
             author=request.user,
-            object=str(post.remote_id)
+            remote_id=str(post.remote_id)
         ).exists()
 
         if existing:
@@ -2573,7 +2573,7 @@ def like_post(request, post_id):
         #  STORE LOCALLY
         Like.objects.create(
             author=request.user,
-            object=str(post.remote_id)
+            remote_id=str(post.remote_id)
         )
 
         #  SEND TO REMOTE
