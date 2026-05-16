@@ -2556,7 +2556,6 @@ def like_post(request, post_id):
         #liked_remote_posts = set(request.session.get("liked_remote_posts", []))
         liked_remote_posts.add(str(post.remote_id))
         request.session["liked_remote_posts"] = list(liked_remote_posts)
-  
 
     else:
         if not _can_interact_with_post(request.user, post):
