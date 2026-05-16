@@ -6,12 +6,11 @@ This repository contains the group project for CMPUT 404 - Team Honeydew at the 
 
 See the [project description](https://uofa-cmput404.github.io/general/project.html) for full details.
 
-The goal of this project is to build a **fully functional website that matches all the requirements for the course project**.
+The goal of this project is to build a **fully functional website that matches all the requirements for the course project.
 
 ---
-## Demo Video
-
-[Watch Demo](Demo.mp4)
+## Demo Video    
+  [Watch Demo](Demo.mp4)
 
   
 ## Team Name
