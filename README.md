@@ -10,9 +10,8 @@ The goal of this project is to build a **fully functional website that matches a
 
 ---
 ## Demo Video
-  <h2>Demo Video</h2>
 
-  <video src="Demo.mp4" controls width="700"></video>
+[Watch Demo](Demo.mp4)
 
   
 ## Team Name
