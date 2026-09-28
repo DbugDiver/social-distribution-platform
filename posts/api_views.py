@@ -428,12 +428,14 @@ def post_comments_api(request, author_id, post_id):
     return HttpResponseNotAllowed(["GET", "POST"])
 
 
-def comment_detail_api(request, author_id, comment_id):
+def comment_detail_api(request, author_id, post_id, comment_id):
     """GET /api/authors/{author_id}/entries/{post_id}/comments/{comment_id}/ - Get single comment"""
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
 
-    comment = get_object_or_404(Comment, id=comment_id, post__author_id=author_id)
+    comment = get_object_or_404(
+        Comment, id=comment_id, post_id=post_id, post__author_id=author_id
+    )
     if not _can_view_post_comments(request.user, comment.post):
         return JsonResponse({"detail": "Not allowed."}, status=403)
 
@@ -488,8 +490,10 @@ def post_likes_api(request, author_id, post_id):
 
 
 @csrf_exempt
-def comment_likes_api(request, author_id, comment_id):
-    comment = get_object_or_404(Comment, id=comment_id, post__author_id=author_id)
+def comment_likes_api(request, author_id, post_id, comment_id):
+    comment = get_object_or_404(
+        Comment, id=comment_id, post_id=post_id, post__author_id=author_id
+    )
     post = comment.post
 
     if not _can_view_post_comments(request.user, post):
@@ -516,6 +520,7 @@ def comment_likes_api(request, author_id, comment_id):
             "posts:api-comment-likes",
             kwargs={
                 "author_id": post.author_id,
+                "post_id": post.id,
                 "comment_id": comment.id,
             },
         )
@@ -899,16 +904,12 @@ def _like_obj(like: Like, request):
         )
         summary = f"{author_name} likes your post"
     else:
-        # For comment likes, determine comment author
-        if like.comment.author:
-            comment_author_id = like.comment.author_id
-        else:
-            comment_author_id = like.comment.remote_author_url.split('/authors/')[-1].rstrip('/')
-        
+        # The comment-detail route is scoped by the entry (post author + post).
         object_path = reverse(
             "posts:api-comment-detail",
             kwargs={
-                "author_id": comment_author_id,
+                "author_id": like.comment.post.author_id,
+                "post_id": like.comment.post_id,
                 "comment_id": like.comment_id,
             },
         )
