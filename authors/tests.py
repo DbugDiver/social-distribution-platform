@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from django.test import Client, TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -106,6 +108,13 @@ class AuthorIdentityTests(TestCase):
         print("Test Passed: No array-like fields exist in Author model")
 
 class FollowAPITestCase(APITestCase):
+    """Follow/friend REST API under /api/authors/ (see authors/api_urls.py).
+
+    Follow relationships are addressed by the other author's federated id
+    (FQID), e.g. PUT /api/authors/<id>/following/<fqid> to follow and
+    PUT/DELETE /api/authors/<id>/followers/<fqid> to accept/reject.
+    """
+
     def setUp(self):
         self.client = APIClient()
         self.author1 = Author.objects.create_user(
@@ -118,17 +127,23 @@ class FollowAPITestCase(APITestCase):
             username="author3", password="testpass", displayName="Author Three"
         )
 
+    @staticmethod
+    def _fqid(author):
+        return quote(f"http://testserver/api/authors/{author.id}", safe="")
+
     # USER STORY 1
     def test_follow_author(self):
         self.client.force_authenticate(user=self.author1)
-        url = f"/authors/api/authors/{self.author2.id}/follow/"
-        response = self.client.post(url)
+        url = f"/api/authors/{self.author1.id}/following/{self._fqid(self.author2)}"
+        response = self.client.put(url)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(
             Follower.objects.filter(
                 follower=self.author1, following=self.author2
             ).exists()
         )
+        # A local author must not be duplicated as a "remote" placeholder.
+        self.assertFalse(Author.objects.filter(is_remote=True).exists())
 
     # USER STORY 3
     def test_accept_follow_request(self):
@@ -136,23 +151,27 @@ class FollowAPITestCase(APITestCase):
             follower=self.author1, following=self.author2, status="pending"
         )
         self.client.force_authenticate(user=self.author2)
-        url = f"/authors/api/authors/{self.author1.id}/accept/"
-        response = self.client.post(url)
+        url = f"/api/authors/{self.author2.id}/followers/{self._fqid(self.author1)}"
+        response = self.client.put(url)
         follow.refresh_from_db()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(follow.status, "accepted")
 
     # USER STORY 3
     def test_reject_follow_request(self):
-        follow = Follower.objects.create(
+        # The API rejects a request by deleting the follower relationship.
+        Follower.objects.create(
             follower=self.author1, following=self.author2, status="pending"
         )
         self.client.force_authenticate(user=self.author2)
-        url = f"/authors/api/authors/{self.author1.id}/reject/"
-        response = self.client.post(url)
-        follow.refresh_from_db()
+        url = f"/api/authors/{self.author2.id}/followers/{self._fqid(self.author1)}"
+        response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(follow.status, "rejected")
+        self.assertFalse(
+            Follower.objects.filter(
+                follower=self.author1, following=self.author2
+            ).exists()
+        )
 
     # USER STORY 4
     def test_view_follow_requests(self):
@@ -160,9 +179,13 @@ class FollowAPITestCase(APITestCase):
             follower=self.author1, following=self.author2, status="pending"
         )
         self.client.force_authenticate(user=self.author2)
-        url = f"/authors/api/authors/{self.author2.id}/following/"
+        url = f"/api/authors/{self.author2.id}/follow_requests/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["type"], "follow_requests")
+        self.assertEqual(
+            [item["username"] for item in response.data["items"]], ["author1"]
+        )
 
     # USER STORY 5
     def test_unfollow_author(self):
@@ -170,7 +193,7 @@ class FollowAPITestCase(APITestCase):
             follower=self.author1, following=self.author2, status="accepted"
         )
         self.client.force_authenticate(user=self.author1)
-        url = f"/authors/api/authors/{self.author2.id}/unfollow/"
+        url = f"/api/authors/{self.author2.id}/unfollow/"
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(
@@ -188,10 +211,11 @@ class FollowAPITestCase(APITestCase):
             follower=self.author2, following=self.author1, status="accepted"
         )
         self.client.force_authenticate(user=self.author1)
-        url = f"/authors/api/authors/{self.author1.id}/friends/"
+        url = f"/api/authors/{self.author1.id}/friends/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(len(response.data) > 0)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["items"][0]["username"], "author2")
 
     # USER STORY 7
     def test_unfriend(self):
@@ -202,7 +226,7 @@ class FollowAPITestCase(APITestCase):
             follower=self.author2, following=self.author1, status="accepted"
         )
         self.client.force_authenticate(user=self.author1)
-        url = f"/authors/api/authors/{self.author2.id}/unfollow/"
+        url = f"/api/authors/{self.author2.id}/unfollow/"
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         still_friend = Follower.objects.filter(
