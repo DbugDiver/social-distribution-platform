@@ -6,6 +6,25 @@ A federated social networking platform. Independent Django servers ("nodes") exc
 
 **[▶ Demo video](Demo.mp4)** · Team project (5 developers) · Django · Django REST Framework · PostgreSQL
 
+<p align="center">
+  <img src="docs/screenshots/stream.png" alt="Public stream with posts, likes, comments and visibility labels" width="820">
+</p>
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/post-detail.png" alt="Markdown post detail with likes and comments"></td>
+    <td width="33%"><img src="docs/screenshots/profile.png" alt="Author profile with recent posts and visibility"></td>
+    <td width="33%"><img src="docs/screenshots/node-management.png" alt="Remote node management: add, enable or disable federated nodes"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Markdown post with likes and comments</sub></td>
+    <td align="center"><sub>Author profile and recent posts</sub></td>
+    <td align="center"><sub>Remote node management (federation)</sub></td>
+  </tr>
+</table>
+
+<sub>Screenshots are from the app running locally with seeded demo data.</sub>
+
 ## Overview
 
 Most social apps are a single service with a single database. Here, every team runs its own node, and nodes interoperate through a common API specification, much like ActivityPub-style federation. That creates problems a single-server app never has:
