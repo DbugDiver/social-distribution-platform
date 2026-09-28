@@ -726,10 +726,12 @@ class RestAndDatabaseTests(TestCase):
     # User Story 2: RESTful interface for core author operations.
     def test_rest_can_fetch_single_author(self):
         self.client.force_login(self.receiver)
-        response = self.client.get(f"/authors/api/authors/{self.author.id}/")
+        response = self.client.get(f"/api/authors/{self.author.id}/")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["id"], f"http://testserver/authors/{self.author.id}")
+        self.assertEqual(payload["type"], "author")
+        self.assertEqual(payload["id"], f"http://testserver/api/authors/{self.author.id}")
+        self.assertEqual(payload["web"], f"http://testserver/authors/{self.author.id}")
         self.assertEqual(payload["displayName"], "Story Author")
 
     # User Story 3: friends-only post comments visible to friends and comment author.
@@ -1092,13 +1094,14 @@ class RemoteNodesApiTests(TestCase):
 
         body = response.json()
 
-        self.assertEqual(body["type"], "posts")
-        self.assertIn("items", body)
-        self.assertGreaterEqual(len(body["items"]), 1)
+        self.assertEqual(body["type"], "entries")
+        self.assertIn("src", body)
+        self.assertGreaterEqual(len(body["src"]), 1)
+        self.assertEqual(body["count"], len(body["src"]))
 
-        post = body["items"][0]
+        post = body["src"][0]
 
-        self.assertEqual(post["type"], "post")
+        self.assertEqual(post["type"], "entry")
         self.assertEqual(post["title"], "Local Public Post")
         self.assertEqual(post["visibility"], "PUBLIC")
 
