@@ -11,7 +11,6 @@ Portions of this test structure were developed with assistance from
 ChatGPT (OpenAI) to ensure correct Django testing practices.
 
 """
-'''
 from django.test import TestCase
 
 # Create your tests here.
@@ -191,4 +190,3 @@ class NodeAdminTests(TestCase):
             Node.objects.filter(host="http://127.0.0.1:8001/").exists(),
             "The new remote node should be saved in the database."
         )
-'''

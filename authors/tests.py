@@ -5,7 +5,6 @@ from rest_framework.test import APIClient, APITestCase
 
 from authors.models import Author, Follower
 
-'''
 class AuthorIdentityTests(TestCase):
     def setUp(self):
         """
@@ -210,4 +209,3 @@ class FollowAPITestCase(APITestCase):
             follower=self.author1, following=self.author2
         ).exists()
         self.assertFalse(still_friend)
-'''

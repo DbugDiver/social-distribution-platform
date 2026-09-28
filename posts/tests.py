@@ -16,7 +16,6 @@ Change citation (local project work):
 - Includes pagination checks and deleted-post interaction denial checks.
 """
 
-'''
 class CommentsLikesApiTests(TestCase):
 	def setUp(self):
 		self.author = Author.objects.create_user(
@@ -544,12 +543,12 @@ class PostsViewTests(TestCase):
         self.assertNotContains(res, "plain text")
         print("Test Passed: Deleted post does not appear in the stream UI")
 
-'''
-'''
+"""
 These tests below refers to user stories : Visibiltiy
 Citation:
     This test class was developed with guidance from ChatGPT (OpenAI).
     Final implementation and testing were completed by the developer.
+"""
 
 
 class PostVisibilityTests(TestCase):
@@ -1108,4 +1107,3 @@ class RemoteNodesApiTests(TestCase):
 
         self.assertEqual(post["author"]["displayName"], "Local Author")
         self.assertIn("id", post["author"])
-'''
