@@ -6,13 +6,46 @@ from django.db.models import Q
 from django.core.paginator import EmptyPage, Paginator
 from django.shortcuts import get_object_or_404
 import requests
-from urllib.parse import unquote
+import re
+from urllib.parse import unquote, urlparse
 from .models import Author, Follower
 from .serializers import AuthorSerializer
 from django.http import JsonResponse
 from django.conf import settings
 from posts.models import Post
 from node.registry import get_configured_nodes
+
+
+
+_LOCAL_AUTHOR_PATH = re.compile(
+    r"^/(?:api/)?authors/(?P<id>[0-9a-fA-F-]{36})/?$"
+)
+
+
+def _resolve_author_fqid(request, fqid):
+    """Return the Author identified by a federated author id (FQID).
+
+    Remote authors are cached with their FQID in ``remote_id``. Local
+    authors have no ``remote_id``; their FQID is this node's
+    ``/api/authors/<uuid>`` URL, so resolve it to the local row instead of
+    treating it as an unknown remote author.
+    """
+    author = Author.objects.filter(remote_id=fqid).first()
+    if author:
+        return author
+
+    parsed = urlparse(fqid)
+    match = _LOCAL_AUTHOR_PATH.match(parsed.path or "")
+    if not match:
+        return None
+    try:
+        local = Author.objects.filter(pk=match.group("id"), is_remote=False).first()
+    except Exception:
+        return None
+    if not local:
+        return None
+    local_hosts = {request.get_host(), urlparse(local.host or "").netloc}
+    return local if parsed.netloc in local_hosts else None
 
 
 # ---------------------------------------------------
@@ -166,9 +199,7 @@ def api_follow_author(request, pk, foreign_id):
     decoded_id = unquote(foreign_id).rstrip("/")
 
     # Try to find existing author (local or remote)
-    following = Author.objects.filter(
-        remote_id=decoded_id
-    ).first()
+    following = _resolve_author_fqid(request, decoded_id)
 
     # If not found → create remote author placeholder
     if not following:
@@ -378,7 +409,7 @@ def api_accept_reject_followers(request, pk, foreign_id):
     
     target = get_object_or_404(Author, pk=pk)
     # find or create remote follower
-    remote_follower = Author.objects.filter(remote_id=decoded_id).first()
+    remote_follower = _resolve_author_fqid(request, decoded_id)
     print(f"Remote follower found : {remote_follower} decoded id = {decoded_id}")
     
 
