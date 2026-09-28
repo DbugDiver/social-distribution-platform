@@ -19,8 +19,7 @@ except ImportError:
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Heroku/prod note: DEBUG must be a boolean. String values (e.g. "False") are truthy.
-# DEBUG = os.environ.get("DEBUG", "False").strip().lower() in ("1", "true", "yes", "on")
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "False").strip().lower() in ("1", "true", "yes", "on")
 
 SECRET_KEY = os.environ.get(
     "SECRET_KEY", "django-insecure-vsc=qpkdlfthsm)na5b4hf9q!tiff#!cg00@=*mn@#h!+cd_))"
