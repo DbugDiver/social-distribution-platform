@@ -862,6 +862,7 @@ class RemoteNodesApiTests(TestCase):
         self.assertEqual(body["type"], "comment")
         self.assertEqual(body["comment"], "Hello from remote node")
         self.assertEqual(body["author"]["displayName"], "Remote User One")
+        self.assertEqual(body["id"], "https://remote-node.example/comments/comment-123")
 
         comment = Comment.objects.get(remote_id="https://remote-node.example/comments/comment-123")
         self.assertTrue(comment.is_remote)
@@ -921,6 +922,7 @@ class RemoteNodesApiTests(TestCase):
 
         self.assertEqual(body["type"], "like")
         self.assertEqual(body["author"]["displayName"], "Remote Liker")
+        self.assertEqual(body["id"], "https://remote-node.example/likes/like-123")
 
         like = Like.objects.get(remote_id="https://remote-node.example/likes/like-123")
         self.assertTrue(like.is_remote)

@@ -823,22 +823,26 @@ def _comment_obj(comment: Comment, request):
         kwargs={"author_id": comment.post.author_id, "post_id": comment.post_id},
     )
     
-    # Determine comment author ID
     if comment.author:
-        comment_author_id = comment.author_id
+        # Use the direct comment endpoint: /api/authors/{comment_author}/commented/{comment_id}
+        comment_path = reverse(
+            "posts:api-commented-detail",
+            kwargs={
+                "author_id": comment.author_id,
+                "comment_id": comment.id,
+            },
+        )
     else:
-        # For remote comments, extract author ID from remote_author_url
-        # e.g., "http://node/api/authors/111" → "111"
-        comment_author_id = comment.remote_author_url.split('/authors/')[-1].rstrip('/')
-    
-    # Use the direct comment endpoint: /api/authors/{comment_author}/commented/{comment_id}
-    comment_path = reverse(
-        "posts:api-commented-detail",
-        kwargs={
-            "author_id": comment_author_id,
-            "comment_id": comment.id,
-        },
-    )
+        # Remote comment authors are not local authors (and their ids need not
+        # be UUIDs), so address the comment through the entry it belongs to.
+        comment_path = reverse(
+            "posts:api-comment-detail",
+            kwargs={
+                "author_id": comment.post.author_id,
+                "post_id": comment.post_id,
+                "comment_id": comment.id,
+            },
+        )
     likes_path = reverse(
         "posts:api-comment-likes",
         kwargs={
@@ -867,7 +871,7 @@ def _comment_obj(comment: Comment, request):
         "comment": comment.comment,
         "contentType": comment.content_type,
         "published": comment.published.isoformat(),
-        "id": request.build_absolute_uri(comment_path),
+        "id": comment.remote_id or request.build_absolute_uri(comment_path),
         "object": request.build_absolute_uri(post_path),
         "likes": {
             "type": "likes",
@@ -894,8 +898,7 @@ def _like_obj(like: Like, request):
             "profileImage": "",
             "web": like.remote_author_url or "",
         }
-        # For remote likes, extract author ID from remote_author_url
-        like_author_id = like.remote_author_url.split('/authors/')[-1].rstrip('/')
+        like_author_id = None
 
     if like.post_id:
         object_path = reverse(
@@ -915,20 +918,24 @@ def _like_obj(like: Like, request):
         )
         summary = f"{author_name} likes your comment"
 
-    like_path = reverse(
-        "posts:api-like-detail", 
-        kwargs={
-            "author_id": like_author_id,
-            "like_id": like.id
-        }
-    )
+    if like_author_id is not None:
+        like_id = request.build_absolute_uri(
+            reverse(
+                "posts:api-like-detail",
+                kwargs={"author_id": like_author_id, "like_id": like.id},
+            )
+        )
+    else:
+        # Remote likes have no local author, so no local /liked/ URL can
+        # resolve them; use the id assigned by the originating node.
+        like_id = like.remote_id or ""
 
     return {
         "type": "like",
         "summary": summary,
         "author": author_obj,
         "object": request.build_absolute_uri(object_path),
-        "id": request.build_absolute_uri(like_path),
+        "id": like_id,
         "published": like.created.isoformat(),
     }
 
