@@ -3,6 +3,10 @@ import os
 import sys
 import django
 
+# Manual smoke-test script (not a unit test). It writes to the configured
+# database. Run from the repo root: python scripts/manual_like_check.py
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'socialdistribution.settings')
 django.setup()
 
