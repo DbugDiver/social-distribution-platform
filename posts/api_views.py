@@ -782,6 +782,9 @@ def author_entries_api(request, author_id):
     )
     return JsonResponse(payload, status=200)
 
+'''
+
+
 def _remote_author_obj_from_payload(author_payload):
     if not isinstance(author_payload, dict):
         return {
@@ -795,7 +798,7 @@ def _remote_author_obj_from_payload(author_payload):
         "displayName": author_payload.get("displayName") or author_payload.get("username") or "Remote Author",
         "host": author_payload.get("host", ""),
     }
-'''
+
 
 def _public_post_or_404(author_id, post_id):
     return get_object_or_404(
