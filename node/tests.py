@@ -11,9 +11,8 @@ Portions of this test structure were developed with assistance from
 ChatGPT (OpenAI) to ensure correct Django testing practices.
 
 """
-from django.test import TestCase
+from unittest.mock import Mock, patch
 
-# Create your tests here.
 from django.test import TestCase, Client
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -50,7 +49,9 @@ class NodeAdminTests(TestCase):
 
         response = self.client.post(
             reverse("signup-author"),
-            {"username": "newuser", "password": "pass123"}
+            # Signup enforces AUTH_PASSWORD_VALIDATORS, so use a password
+            # that passes them (a weak one re-renders the form, no user).
+            {"username": "newuser", "password": "Str0ng-Signup-Pass!"}
         )
 
         user = Author.objects.get(username="newuser")
@@ -170,23 +171,34 @@ class NodeAdminTests(TestCase):
         # 1. Log in as the node administrator (superuser)
         self.client.login(username="admin", password="adminpass")
 
-        # 2. Submit the form to add a new remote node connection
-        # Make sure "node-management" matches the name="" in your urls.py
-        response = self.client.post(
-            reverse("node-management"),
-            {
-                "host": "http://127.0.0.1:8001/",
-                "auth_username": "adm",
-                "auth_password": "123",
-                "is_active": "on"
-            }
-        )
+        # 2. Submit the form to add a new remote node connection.
+        # The view probes the remote host over HTTP before saving, so stub
+        # the network: the remote answers 200 and exposes no extra data.
+        probe_response = Mock(status_code=200)
+        with patch("node.views.requests.get", return_value=probe_response) as get, \
+                patch("node.views.inspect_remote_authors", return_value=None), \
+                patch("node.views.discover_remote_endpoints", return_value={}):
+            response = self.client.post(
+                reverse("manage-nodes"),
+                {
+                    "host": "http://127.0.0.1:8001/",
+                    "auth_username": "adm",
+                    "auth_password": "123",
+                    "is_active": "on"
+                }
+            )
+
+        # The probe used the node's configured credentials.
+        self.assertTrue(get.called)
+        self.assertEqual(get.call_args.kwargs["auth"].username, "adm")
 
         # 3. Verify the form submission redirects successfully (302 status code)
         self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("manage-nodes"))
 
-         # 4. Verify the new Node was actually saved to the database
+        # 4. Verify the new Node was actually saved to the database
+        # (the view normalizes the host by stripping the trailing slash).
         self.assertTrue(
-            Node.objects.filter(host="http://127.0.0.1:8001/").exists(),
+            Node.objects.filter(host="http://127.0.0.1:8001", is_active=True).exists(),
             "The new remote node should be saved in the database."
         )
