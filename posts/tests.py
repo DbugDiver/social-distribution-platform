@@ -66,19 +66,19 @@ class CommentsLikesApiTests(TestCase):
 
 	def _post_comments_url(self, post):
 		return reverse(
-			"posts:api-post-comments",
+			"posts:api-entry-comments",
 			kwargs={"author_id": post.author_id, "post_id": post.id},
 		)
 
 	def _post_likes_url(self, post):
 		return reverse(
-			"posts:api-post-likes",
+			"posts:api-entry-likes",
 			kwargs={"author_id": post.author_id, "post_id": post.id},
 		)
 
 	def _post_detail_url(self, post):
 		return reverse(
-			"posts:api-post-detail",
+			"posts:api-entry-detail",
 			kwargs={"author_id": post.author_id, "post_id": post.id},
 		)
 
@@ -748,7 +748,7 @@ class RestAndDatabaseTests(TestCase):
         own_comment = Comment.objects.create(post=post, author=self.comment_author, comment="my own comment")
 
         comments_url = reverse(
-            "posts:api-post-comments",
+            "posts:api-entry-comments",
             kwargs={"author_id": post.author_id, "post_id": post.id},
         )
 
@@ -776,7 +776,7 @@ class RestAndDatabaseTests(TestCase):
 
         self.client.force_login(self.receiver)
         detail_url = reverse(
-            "posts:api-post-detail",
+            "posts:api-entry-detail",
             kwargs={"author_id": public_post.author_id, "post_id": public_post.id},
         )
         response = self.client.get(detail_url)
@@ -818,13 +818,13 @@ class RemoteNodesApiTests(TestCase):
 
     def _public_comments_url(self, post):
         return reverse(
-            "posts:api-public-post-comments",
+            "posts:api-public-entry-comments",
             kwargs={"author_id": post.author_id, "post_id": post.id},
         )
 
     def _public_post_likes_url(self, post):
         return reverse(
-            "posts:api-public-post-likes",
+            "posts:api-public-entry-likes",
             kwargs={"author_id": post.author_id, "post_id": post.id},
         )
 
@@ -1085,7 +1085,7 @@ class RemoteNodesApiTests(TestCase):
         self.assertEqual(body["src"][0]["author"]["displayName"], "Stored Remote Comment Liker")
         
     def test_remote_node_can_view_public_posts(self):
-        response = self.client.get(reverse("posts:api-public-posts"))
+        response = self.client.get(reverse("posts:api-public-entries"))
         self.assertEqual(response.status_code, 200)
 
         body = response.json()
