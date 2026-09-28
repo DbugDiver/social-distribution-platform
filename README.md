@@ -17,26 +17,11 @@ Most social apps are a single service with a single database. Here, every team r
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph NodeA["Our node (Django)"]
-        UI["Server-rendered UI<br/>stream · profiles · posts"]
-        API["REST API (DRF)<br/>/api/authors/…"]
-        NA["NodeAuthentication<br/>Basic auth per remote node"]
-        DB[("PostgreSQL<br/>authors · posts · follows<br/>comments · likes · nodes")]
-        UI --> DB
-        API --> NA --> DB
-    end
-    subgraph NodeB["Remote node (another team)"]
-        RAPI["REST API"]
-    end
-    subgraph NodeC["Remote node"]
-        CAPI["REST API"]
-    end
-    API <-->|"inbox delivery:<br/>posts, follows, likes, comments"| RAPI
-    API <-->|"author discovery,<br/>remote search"| CAPI
-    ADMIN["Node admin dashboard<br/>approve authors, manage nodes"] --> DB
-```
+<p align="center">
+  <img src="docs/architecture.png" alt="Federated architecture: remote nodes exchange data with our Django node over the REST API" width="720">
+</p>
+
+<sub>Diagram source: [`docs/architecture.mmd`](docs/architecture.mmd)</sub>
 
 | App | Responsibility |
 |---|---|

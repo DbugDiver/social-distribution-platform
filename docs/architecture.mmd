@@ -1,0 +1,13 @@
+flowchart TB
+    R["Remote nodes<br/>(run by other teams)"]
+    subgraph OUR["Our node — Django + DRF"]
+        API["REST API<br/>/api/authors/…"]
+        NA["Node authentication<br/>HTTP Basic per remote node"]
+        UI["Server-rendered UI<br/>stream · profiles · posts"]
+        ADM["Node admin dashboard<br/>approve authors · manage nodes"]
+        DB[("PostgreSQL<br/>authors · posts · follows<br/>comments · likes · nodes")]
+        API --> NA --> DB
+        UI --> DB
+        ADM --> DB
+    end
+    R <-->|"inbox delivery: posts · follows · likes · comments<br/>author discovery · remote search"| API
